@@ -83,7 +83,8 @@ class Robot(Job):
         self.notion_manager = NotionManager(
             token=config.NOTION['TOKEN'],
             lists_db_id=config.NOTION['LISTS_DB_ID'],
-            groups_db_id=config.NOTION['GROUPS_DB_ID']
+            groups_db_id=config.NOTION['GROUPS_DB_ID'],
+            wcf=wcf
         )
         self.forward_state = ForwardState.IDLE
         self.forward_message = None
@@ -164,15 +165,16 @@ class Robot(Job):
 
         # 群聊消息
         if msg.from_group():
-            # 如果在群里被 @
-            if msg.roomid not in self.config.GROUPS:  # 不在配置的响应的群列表里，忽略
+            # 如果在群里被 @，看是否在notion里允许响应的群列表里
+            allowed_groups = self.notion_manager.get_all_allowed_groups()
+            if msg.roomid not in allowed_groups:  # 不在允许响应的群列表里，忽略
                 return
 
             if msg.is_at(self.wxid):  # 被@
                 self.toAt(msg)
 
             else:  # 其他消息
-                self.toChengyu(msg)
+                self.toChitchat(msg)
 
             return  # 处理完群聊信息，后面就不需要处理了
 
