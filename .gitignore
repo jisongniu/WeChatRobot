@@ -10,3 +10,6 @@ logs/
 *.log.*
 
 config.yaml
+
+# Debug files
+debug/

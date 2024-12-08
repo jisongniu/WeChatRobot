@@ -55,6 +55,11 @@ def main(chat_type: int):
     # 每天 16:30 提醒发日报周报月报
     robot.onEveryTime("16:30", ReportReminder.remind, robot=robot)
 
+    # 注册好友请求处理函数
+    @robot.on_friend_request
+    def on_friend_request(msg):
+        robot.handle_friend_request(msg)
+
     # 让机器人一直跑
     robot.keepRunningAndBlockProcess()
 

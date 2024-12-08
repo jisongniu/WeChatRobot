@@ -1,9 +1,9 @@
 from enum import IntEnum, unique
-
+from enum import Enum
 
 @unique
 class ChatType(IntEnum):
-    # UnKnown = 0  # 未知, 即未设置
+    UnKnown = 0  # 未知, 即未设置
     TIGER_BOT = 1  # TigerBot
     CHATGPT = 2  # ChatGPT
     XINGHUO_WEB = 3  # 讯飞星火
@@ -22,3 +22,10 @@ class ChatType(IntEnum):
     @staticmethod
     def help_hint() -> str:
         return str({member.value: member.name for member in ChatType}).replace('{', '').replace('}', '')
+    
+
+
+# 好友请求自动通过相关常量
+MIN_ACCEPT_DELAY = 30  # 最小延迟时间(秒)
+MAX_ACCEPT_DELAY = 90  # 最大延迟时间(秒)
+FRIEND_WELCOME_MSG = "hey，如果你对加入社群感兴趣，请回复【入群】"
