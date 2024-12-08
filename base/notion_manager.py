@@ -20,16 +20,21 @@ class CacheData:
     expire_time: datetime
 
 class NotionManager:
-    def __init__(self, token: str, lists_db_id: str, groups_db_id: str, cache_ttl: int = 604800):
+    def __init__(self, token: str, lists_db_id: str, groups_db_id: str, wcf: 'Wcf', cache_ttl: int = 604800):
         self.notion = Client(auth=token)
         self.lists_db_id = lists_db_id
         self.groups_db_id = groups_db_id
-        self.cache_ttl = cache_ttl  # 缓存有效期（秒）
+        self.wcf = wcf
+        self.cache_ttl = cache_ttl
         self.cache_lock = threading.Lock()
         self._cache = {
             'lists': None,
-            'groups': {}  # 按 list_id 缓存群组
+            'groups': {},
+            'wxid_map': None
         }
+        self._lists_cache = None
+        self._all_groups_cache = None
+        self._groups_cache = {}
 
     def _get_cache(self, cache_key: str) -> Optional[any]:
         """获取缓存数据"""
@@ -52,8 +57,12 @@ class NotionManager:
         with self.cache_lock:
             self._cache = {
                 'lists': None,
-                'groups': {}
+                'groups': {},
+                'wxid_map': None
             }
+            self._lists_cache = None
+            self._all_groups_cache = None
+            self._groups_cache.clear()
 
     def get_all_lists(self) -> List[ForwardList]:
         """获取所有转发列表（带缓存）"""
@@ -114,7 +123,7 @@ class NotionManager:
         groups_response = self.notion.databases.query(
             database_id=self.groups_db_id,
             filter={
-                "property": "是否转发",
+                "property": "允许发言",
                 "checkbox": {
                     "equals": True
                 }
@@ -161,7 +170,7 @@ class NotionManager:
         return result_lists
 
     def get_groups_by_list_id(self, list_id: int) -> List[str]:
-        """获取指定列表ID的所有群wxid（带缓存）"""
+        """获取指定列表ID的所有可转发群组（带缓存）"""
         cache_key = f'groups_{list_id}'
         
         # 尝试从缓存获取
@@ -210,7 +219,7 @@ class NotionManager:
                         }
                     },
                     {
-                        "property": "是否转发",
+                        "property": "允许发言",
                         "checkbox": {
                             "equals": True
                         }
@@ -243,3 +252,83 @@ class NotionManager:
             self.get_groups_by_list_id(list_id)
         else:
             self._cache['groups'] = {}
+
+    def get_all_allowed_groups(self) -> list:
+        """获取所有允许发言的群组"""
+        if self._all_groups_cache is None:
+            # 查询所有允许发言的群组
+            groups_response = self.notion.databases.query(
+                database_id=self.groups_db_id,
+                filter={
+                    "property": "允许发言",  
+                    "checkbox": {
+                        "equals": True
+                    }
+                }
+            )
+            
+            all_groups = []
+            for page in groups_response['results']:
+                try:
+                    # 优先使用已有的wxid
+                    wxid_array = page['properties'].get('group_wxid', {}).get('rich_text', [])
+                    if wxid_array:
+                        all_groups.append(wxid_array[0]['text']['content'])
+                        continue
+
+                    # 如果没有wxid，尝试通过群名查找
+                    name_array = page['properties'].get('群名', {}).get('title', [])
+                    if name_array:
+                        group_name = name_array[0]['text']['content']
+                        wxid = self._get_group_wxid(group_name)
+                        if wxid:
+                            all_groups.append(wxid)
+                            # 可以选择更新notion中的wxid
+                            self._update_group_wxid(page['id'], wxid)
+                        else:
+                            logger.warning(f"未找到群 {group_name} 的wxid")
+                except Exception as e:
+                    logger.error(f"处理群组时出错: {e}")
+                    continue
+                    
+            self._all_groups_cache = all_groups
+            logger.info(f"获取到 {len(all_groups)} 个允许发言的群组")
+            
+        return self._all_groups_cache
+
+    def _get_group_wxid(self, group_name: str) -> Optional[str]:
+        """通过群名获取群wxid"""
+        # 先尝试从缓存获取wxid映射
+        if self._cache['wxid_map'] is None:
+            # 获取所有群聊
+            chatrooms = self.wcf.get_chatrooms()
+            # 建立群名到wxid的映射
+            self._cache['wxid_map'] = {
+                self.wcf.get_chatroom_nickname(room): room 
+                for room in chatrooms
+            }
+            logger.info(f"已缓存 {len(chatrooms)} 个群聊的wxid映射")
+
+        # 从缓存中查找wxid
+        return self._cache['wxid_map'].get(group_name)
+
+    def _update_group_wxid(self, page_id: str, wxid: str) -> None:
+        """更新Notion中群组的wxid"""
+        try:
+            self.notion.pages.update(
+                page_id=page_id,
+                properties={
+                    "group_wxid": {
+                        "rich_text": [
+                            {
+                                "text": {
+                                    "content": wxid
+                                }
+                            }
+                        ]
+                    }
+                }
+            )
+            logger.info(f"已更新群组 {wxid} 的wxid")
+        except Exception as e:
+            logger.error(f"更新群组wxid失败: {e}")
