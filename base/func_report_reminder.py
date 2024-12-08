@@ -1,16 +1,23 @@
 import calendar
 import datetime
+import logging
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from robot import Robot  # 只在类型检查时导入
 
 from chinese_calendar import is_workday
-from robot import Robot
 
 
 class ReportReminder:
-
+    def __init__(self, robot) -> None:
+        self.robot = robot
+        self.LOG = logging.getLogger("ReportReminder")
+        
     @staticmethod
-    def remind(robot: Robot) -> None:
-
-        receivers = robot.config.REPORT_REMINDERS
+    def remind(robot: 'Robot') -> None:
+        """提醒发送日报周报月报"""
+        receivers = robot.config.REPORT_REMINDER
         if not receivers:
             receivers = ["filehelper"]
         # 日报周报月报提醒
