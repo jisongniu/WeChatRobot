@@ -21,7 +21,7 @@ from base.func_xinghuo_web import XinghuoWeb
 from configuration import Config
 from constants import ChatType, MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY, FRIEND_WELCOME_MSG
 from job_mgmt import Job
-from WeChatRobot.base.notion_manager import NotionManager
+from base.notion_manager import NotionManager
 import random  
 
 __version__ = "39.2.4.0"
@@ -29,7 +29,7 @@ __version__ = "39.2.4.0"
 
 class ForwardState(Enum):
     IDLE = auto()
-    WAITING_CHOICE_MODE = auto()  # 新增状态：等待用户选择模式
+    WAITING_CHOICE_MODE = auto()  # 等待用户选择模式
     WAITING_MESSAGE = auto()
     WAITING_CHOICE = auto()
 
@@ -39,6 +39,7 @@ class Robot(Job):
     """
 
     def __init__(self, config: Config, wcf: Wcf, chat_type: int) -> None:
+        super().__init__()
         self.wcf = wcf
         self.config = config
         self.LOG = logging.getLogger("Robot")
@@ -88,7 +89,7 @@ class Robot(Job):
         )
         self.forward_state = ForwardState.IDLE
         self.forward_message = None
-        self.forward_admin = config.FORWARD_ADMIN
+        self.forward_admin = config.FORWARD_ADMINS
 
     @staticmethod
     def value_check(args: dict) -> bool:
@@ -192,22 +193,24 @@ class Robot(Job):
                 if msg.content == "^更新$":  # 判断消息内容是否匹配正则表达式 "^更新$"
                     self.config.reload()  # 重新加载配置文件
                     self.LOG.info("已更新")  # 记录日志 
+                    return  # 添加 return
                     
             # 如果是管理员且在处理转发流程
-            elif msg.sender == self.forward_admin:
-                if msg.content == "刷新列表":
-                    self.notion_manager.refresh_lists()
-                    self.sendTextMsg("已刷新转发列表", msg.sender)
-                    return
-                elif msg.content == "删除缓存":
-                    self.notion_manager.clear_cache()
-                    self.sendTextMsg("已删除缓存", msg.sender)
-                    return
-                if self._handle_forward_admin_msg(msg):
-                    return
-            else:
-                # 如果不是以上流程，则进行闲聊
-                self.toChitchat(msg)  # 闲聊
+            if msg.sender in self.forward_admin:  # 使用 in 检查管理员列表
+                self.LOG.info(f"触发管理员消息处理：{msg.sender}")
+                # 如果在任何转发状态，或者消息是"转发"，都交给转发处理函数
+                if self.forward_state != ForwardState.IDLE or msg.content == "转发":
+                    if self._handle_forward_admin_msg(msg):
+                        return
+            
+            # 只有消息以"问："开头时才触发AI对话
+            if msg.content.startswith("问："):
+                # 移除"问："前缀
+                question = msg.content[2:]
+                if msg.from_group():
+                    self.sendTextMsg(self.chat.get_answer(question, msg.roomid), msg.roomid, msg.sender)
+                else:
+                    self.sendTextMsg(self.chat.get_answer(question, msg.sender), msg.sender)
 
     def onMsg(self, msg: WxMsg) -> int:
         try:
@@ -283,36 +286,37 @@ class Robot(Job):
             self.runPendingJobs()
             time.sleep(1)
 
+    def on_friend_request(self, func):
+        """好友请求装饰器"""
+        self.friend_request_handler = func
+        return func
+
     def handle_friend_request(self, msg):
-        """处理好友请求的完整流程：延迟接受并发送欢迎消息
-        Args:
-            msg: 好友请求消息
-        """
-        def delayed_accept():
-            try:
-                # 随机延迟30-90秒
-                delay = random.randint(MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY)
-                self.LOG.info(f"将在{delay}秒后通过好友请求")
-                time.sleep(delay)
-                
-                self.accept_friend_request(msg)  # 调用具体的接受请求函数
-                
-                # 等待一下让系统处理完好友请求
-                time.sleep(1)
-                
-                # 获取新好友信息
-                new_friend = self.get_friend_by_wxid(msg.sender)
-                if new_friend:
-                    # 发送欢迎消息
-                    welcome_msg = FRIEND_WELCOME_MSG
-                    self.sendTextMsg(welcome_msg, msg.sender)
-                    self.LOG.info(f"已发送欢迎消息给：{new_friend.nickname}")
-            except Exception as e:
-                self.LOG.error(f"处理好友请求失败：{e}")
-        
-        # 启动新线程处理请求，避免阻塞主线程
-        Thread(target=delayed_accept, name="AcceptFriend").start()
-    
+        """处理好友请求"""
+        if hasattr(self, 'friend_request_handler'):
+            self.friend_request_handler(msg)
+        else:
+            # 使用默认的处理逻辑
+            def delayed_accept():
+                try:
+                    delay = random.randint(MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY)
+                    self.LOG.info(f"将在{delay}秒后通过好友请求")
+                    time.sleep(delay)
+                    
+                    self.accept_friend_request(msg)
+                    
+                    time.sleep(1)
+                    
+                    new_friend = self.get_friend_by_wxid(msg.sender)
+                    if new_friend:
+                        welcome_msg = FRIEND_WELCOME_MSG
+                        self.sendTextMsg(welcome_msg, msg.sender)
+                        self.LOG.info(f"已发送欢迎消息给：{new_friend.nickname}")
+                except Exception as e:
+                    self.LOG.error(f"处理好友请求失败：{e}")
+            
+            Thread(target=delayed_accept, name="AcceptFriend").start()
+
     def accept_friend_request(self, msg):
         """通过好友请求
         Args:
@@ -370,53 +374,82 @@ class Robot(Job):
     def _handle_forward_admin_msg(self, msg: WxMsg) -> bool:
         """处理转发管理员的消息"""
         if msg.content == "转发":
-            if msg.sender == self.forward_admin:
+            if msg.sender in self.forward_admin:
                 self.forward_state = ForwardState.WAITING_CHOICE_MODE
-                self.sendTextMsg("已进入转发模式。\n如果希望刷新群聊列表，回复刷新列表。\n如果希望删除缓存，回复删除缓存。\n🌟如果想直接转发，回复1。", msg.sender)
+                self._send_forward_menu(msg.sender)
                 return True
             else:
                 self.sendTextMsg("对不起，你未开通转发权限，私聊大松获取。", msg.sender)
                 return False
-            
+    
         elif self.forward_state == ForwardState.WAITING_CHOICE_MODE:
-            if msg.content == "1":
+            if msg.content == "刷新列表":
+                self.notion_manager.refresh_lists()
+                self.sendTextMsg("已刷新转发列表", msg.sender)
+                self._send_forward_menu(msg.sender)  # 重新发送菜单
+                return True
+            elif msg.content == "1":
                 self.forward_state = ForwardState.WAITING_MESSAGE
                 self.forward_message = []  # 初始化为列表，用于存储多条消息
-                self.sendTextMsg("请发送需要转发的内容（类型可以是公众号推文、视频号视频、文字、图片，数量不限），完成后回复选择群聊。", msg.sender)
+                self.sendTextMsg("请发送需要转发的内容（类型可以是公众号推文、视频号视频、文字、图片，数量不限），完成后回复：选择群聊", msg.sender)
                 return True
-            return False
+            return True  # 在选择模式下，所有消息都由这个函数处理
             
         elif self.forward_state == ForwardState.WAITING_MESSAGE:
             if msg.content == "选择群聊":
+                if not self.forward_message:
+                    self.sendTextMsg("还未收集到任何消息，请先发送需要转发的内容", msg.sender)
+                    return True
+                
                 self.forward_state = ForwardState.WAITING_CHOICE
                 # 获取并显示所有可用列表
                 lists = self.notion_manager.get_all_lists()
-                response = "请选择转发列表编号：\n"
+                response = f"已收集 {len(self.forward_message)} 条消息\n请选择转发列表编号：\n"
                 for lst in lists:
                     response += f"{lst.list_id}. {lst.list_name} ({lst.description})\n"
                 self.sendTextMsg(response, msg.sender)
             else:
-                self.forward_message.append(msg)  # 将消息添加到列表中
+                # 收集消息
+                self.forward_message.append(msg)
+                # 可以添加一个简单的反馈
+                #self.sendTextMsg(f"已收集第 {len(self.forward_message)} 条消息", msg.sender)
                 return True
-                
+            
         elif self.forward_state == ForwardState.WAITING_CHOICE:
             try:
                 list_id = int(msg.content)
                 if self.forward_message:
                     groups = self.notion_manager.get_groups_by_list_id(list_id)
+                    total_groups = len(groups)
+                    total_messages = len(self.forward_message)
+                    
+                    self.sendTextMsg(f"开始转发 {total_messages} 条消息到 {total_groups} 个群...", msg.sender)
+                    
+                    # 为每个群转发所有收集的消息
                     for group in groups:
                         for fwd_msg in self.forward_message:
-                            self._forward_message(fwd_msg, group)
-                    self.sendTextMsg(f"已转发 {len(self.forward_message)} 条消息到 {len(groups)} 个群", msg.sender)
+                            self.wcf.forward_msg(fwd_msg.id, group)
+                            time.sleep(random.uniform(0.5, 1))  # 添加随机延迟
+                        time.sleep(random.uniform(1, 2))  # 群与群之间的延迟
+                    
+                    self.sendTextMsg(f"转发完成！共转发 {total_messages} 条消息到 {total_groups} 个群", msg.sender)
                 
                 self.forward_state = ForwardState.IDLE
-                self.forward_message = None
+                self.forward_message = []
                 return True
+                
             except ValueError:
                 self.sendTextMsg("请输入正确的列表编号", msg.sender)
                 return True
                 
         return False
+
+    def _send_forward_menu(self, receiver):
+        """发送转发模式的菜单"""
+        menu = ("已进入转发模式。\n"
+                "如果希望刷新群聊列表，回复：刷新列表\n"
+                "✨如果想直接转发，回复：1")
+        self.sendTextMsg(menu, receiver)
 
     def _forward_message(self, msg: WxMsg, group: str) -> None:
         """转发消息到指定群"""

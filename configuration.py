@@ -27,9 +27,9 @@ class Config(object):
     def reload(self) -> None:
         yconfig = self._load_config()
         logging.config.dictConfig(yconfig["logging"])
-        self.GROUPS = yconfig["groups"]["enable"]
+        self.NOTION = yconfig["NOTION"]
         self.NEWS = yconfig["news"]["receivers"]
-        self.REPORT_REMINDERS = yconfig["report_reminder"]["receivers"]
+        self.REPORT_REMINDER = yconfig["report_reminder"]["receivers"]
 
         self.CHATGPT = yconfig.get("chatgpt", {})
         self.TIGERBOT = yconfig.get("tigerbot", {})
