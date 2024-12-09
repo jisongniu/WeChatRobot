@@ -8,6 +8,7 @@ from queue import Empty
 from threading import Thread
 from base.func_zhipu import ZhiPu
 from enum import Enum, auto
+from typing import List, Optional
 
 from wcferry import Wcf, WxMsg
 
@@ -22,7 +23,9 @@ from configuration import Config
 from constants import ChatType, MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY, FRIEND_WELCOME_MSG
 from job_mgmt import Job
 from base.notion_manager import NotionManager
+from base.ncc_manager import NCCManager
 import random  
+import os
 
 __version__ = "39.2.4.0"
 
@@ -81,12 +84,16 @@ class Robot(Job):
 
         self.LOG.info(f"已选择: {self.chat}")
 
+        # 确保数据目录存在
+        os.makedirs("data", exist_ok=True)
+        
         self.notion_manager = NotionManager(
-            token=config.NOTION['TOKEN'],
-            lists_db_id=config.NOTION['LISTS_DB_ID'],
-            groups_db_id=config.NOTION['GROUPS_DB_ID'],
-            wcf=wcf
+            token=self.config.NOTION['TOKEN'],
+            lists_db_id=self.config.NOTION['LISTS_DB_ID'],
+            groups_db_id=self.config.NOTION['GROUPS_DB_ID'],
+            wcf=self.wcf
         )
+        self.ncc_manager = NCCManager(self.notion_manager)
         self.forward_state = ForwardState.IDLE
         self.forward_message = None
         self.forward_admin = config.FORWARD_ADMINS
@@ -132,7 +139,7 @@ class Robot(Job):
         return status
 
     def toChitchat(self, msg: WxMsg) -> bool:
-        """处理闲聊消息，通过 ChatGPT 生成回复
+        """处理关键词：「问：」的消息，通过 ChatGPT 生成回复
         """
         # 如果没有配置 ChatGPT，返回固定回复
         if not self.chat:
@@ -173,10 +180,8 @@ class Robot(Job):
 
             if msg.is_at(self.wxid):  # 被@
                 self.toAt(msg)
-
             else:  # 其他消息
                 self.toChitchat(msg)
-
             return  # 处理完群聊信息，后面就不需要处理了
 
         # 非群聊信息，按消息类型进行处理
@@ -193,12 +198,17 @@ class Robot(Job):
                 if msg.content == "^更新$":  # 判断消息内容是否匹配正则表达式 "^更新$"
                     self.config.reload()  # 重新加载配置文件
                     self.LOG.info("已更新")  # 记录日志 
-                    return  # 添加 return
-                    
-            # 如果是管理员且在处理转发流程
-            if msg.sender in self.forward_admin:  # 使用 in 检查管理员列表
-                self.LOG.info(f"触发管理员消息处理：{msg.sender}")
-                # 如果在任何转发状态，或者消息是"转发"，都交给转发处理函数
+                    return
+
+            # 处理管理员的 NCC 和转发命令（仅限私聊）
+            if msg.sender in self.forward_admin:
+                # 如果是 NCC 相关命令
+                if msg.content.startswith("ncc") or self.ncc_manager.current_mode == "forward":
+                    response = self.ncc_manager.handle_command(msg.content)
+                    self.sendTextMsg(response, msg.sender)
+                    return
+                
+                # 如果是转发相关命令
                 if self.forward_state != ForwardState.IDLE or msg.content == "转发":
                     if self._handle_forward_admin_msg(msg):
                         return
@@ -384,8 +394,11 @@ class Robot(Job):
     
         elif self.forward_state == ForwardState.WAITING_CHOICE_MODE:
             if msg.content == "刷新列表":
-                self.notion_manager.refresh_lists()
-                self.sendTextMsg("已刷新转发列表", msg.sender)
+                # 使用 notion_manager 的方法刷新本地缓存
+                if self.notion_manager.save_lists_to_local():
+                    self.sendTextMsg("已刷新转发列表", msg.sender)
+                else:
+                    self.sendTextMsg("刷新列表失败", msg.sender)
                 self._send_forward_menu(msg.sender)  # 重新发送菜单
                 return True
             elif msg.content == "1":
@@ -393,7 +406,7 @@ class Robot(Job):
                 self.forward_message = []  # 初始化为列表，用于存储多条消息
                 self.sendTextMsg("请发送需要转发的内容（类型可以是公众号推文、视频号视频、文字、图片，数量不限），完成后回复：选择群聊", msg.sender)
                 return True
-            return True  # 在选择模式下，所有消息都由这个函数处理
+            return True
             
         elif self.forward_state == ForwardState.WAITING_MESSAGE:
             if msg.content == "选择群聊":
@@ -402,8 +415,13 @@ class Robot(Job):
                     return True
                 
                 self.forward_state = ForwardState.WAITING_CHOICE
-                # 获取并显示所有可用列表
-                lists = self.notion_manager.get_all_lists()
+                # 从本地缓存获取列表信息
+                lists = self.notion_manager.load_lists_from_local()
+                if not lists:
+                    self.sendTextMsg("未找到可用的转发列表，请先使用【刷新列表】更新数据", msg.sender)
+                    self.forward_state = ForwardState.IDLE
+                    return True
+                    
                 response = f"已收集 {len(self.forward_message)} 条消息\n请选择转发列表编号：\n"
                 for lst in lists:
                     response += f"{lst.list_id}. {lst.list_name}\n"
@@ -411,15 +429,19 @@ class Robot(Job):
             else:
                 # 收集消息
                 self.forward_message.append(msg)
-                # 可以添加一个简单的反馈
-                #self.sendTextMsg(f"已收集第 {len(self.forward_message)} 条消息", msg.sender)
                 return True
             
         elif self.forward_state == ForwardState.WAITING_CHOICE:
             try:
                 list_id = int(msg.content)
                 if self.forward_message:
+                    # 从本地缓存获取群组信息
                     groups = self.notion_manager.get_groups_by_list_id(list_id)
+                    if not groups:
+                        self.sendTextMsg(f"未找到ID为 {list_id} 的列表或列表中没有有效的群组", msg.sender)
+                        self.forward_state = ForwardState.IDLE
+                        return True
+                        
                     total_groups = len(groups)
                     total_messages = len(self.forward_message)
                     
