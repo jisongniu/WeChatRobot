@@ -66,9 +66,10 @@ class NotionManager:
         return wxid
 
     def get_all_lists(self) -> List[ForwardList]:
-        """获取所有转发列表及其群组，并更新群组的 wxid"""
+        """获取所有转发列表及其群组"""
         try:
             lists = {}
+            # 1. 获取所有启用的转发列表
             lists_response = self.notion.databases.query(
                 database_id=self.lists_db_id,
                 filter={
@@ -79,29 +80,7 @@ class NotionManager:
                 }
             )
             
-            logger.info(f"获取到 {len(lists_response['results'])} 个列表")
-
-            for page in lists_response['results']:
-                try:
-                    list_id = page['properties'].get('分组编号', {}).get('number')
-                    if not list_id:
-                        continue
-                        
-                    title_array = page['properties'].get('组名', {}).get('title', [])
-                    if not title_array:
-                        continue
-                        
-                    list_name = title_array[0]['text']['content']
-                    lists[list_id] = ForwardList(
-                        list_id=list_id,
-                        list_name=list_name,
-                        groups=[]
-                    )
-                    logger.info(f"成功处理列表: {list_id} - {list_name}")
-                except Exception as e:
-                    logger.error(f"处理列表时出错: {e}")
-                    continue
-
+            # 2. 获取所有允许发言的群组
             groups_response = self.notion.databases.query(
                 database_id=self.groups_db_id,
                 filter={
@@ -111,55 +90,60 @@ class NotionManager:
                     }
                 }
             )
-            
-            logger.info(f"获取到 {len(groups_response['results'])} 个群组")
 
-            # 一次性获取所有群聊的 wxid 映射
-            if self._cache['wxid_map'] is None and self.wcf:
+            # 3. 构建群组 wxid 映射（如果有 wcf）
+            group_wxids = {}
+            if self.wcf:
                 chatrooms = self.wcf.query_sql(
                     "MicroMsg.db",
                     "SELECT UserName, NickName FROM Contact WHERE Type=2 AND UserName LIKE '%@chatroom';"
                 )
-                self._cache['wxid_map'] = {
+                group_wxids = {
                     room['NickName']: room['UserName']
                     for room in chatrooms
                 }
-                logger.info(f"已缓存 {len(chatrooms)} 个群聊的wxid映射")
 
+            # 4. 处理每个列表
+            for page in lists_response['results']:
+                list_id = page['properties'].get('分组编号', {}).get('number')
+                if not list_id:
+                    continue
+                
+                title = page['properties'].get('组名', {}).get('title', [])
+                if not title:
+                    continue
+                
+                list_name = title[0]['text']['content']
+                lists[list_id] = ForwardList(
+                    list_id=list_id,
+                    list_name=list_name,
+                    groups=[]
+                )
+
+            # 5. 处理每个群组并关联到列表
             for page in groups_response['results']:
                 try:
-                    relation_array = page['properties'].get('转发群聊分组', {}).get('relation', [])
-                    if not relation_array:
-                        continue
-                    
+                    # 获取群名
                     name_array = page['properties'].get('群名', {}).get('title', [])
                     if not name_array:
                         continue
-                    
                     group_name = name_array[0]['text']['content']
                     
-                    # 检查并更新群组的 wxid
-                    saved_wxid = page['properties'].get('微信群ID', {}).get('rich_text', [])
-                    if not saved_wxid or not saved_wxid[0]['text']['content']:
-                        wxid = self._cache['wxid_map'].get(group_name)
-                        if wxid:
-                            self._update_group_wxid(page['id'], wxid)
-                            logger.info(f"已更新群组 {group_name} 的 wxid: {wxid}")
+                    # 获取群的 wxid
+                    wxid = group_wxids.get(group_name)
                     
-                    for relation in relation_array:
-                        try:
-                            list_page = self.notion.pages.retrieve(relation['id'])
-                            list_id = list_page['properties']['分组编号']['number']
-                            
-                            if list_id in lists:
-                                lists[list_id].groups.append({
-                                    'group_name': group_name
-                                })
-                                logger.info(f"成功添加群组 {group_name} 到列表 {list_id}")
-                        except Exception as e:
-                            logger.error(f"处理群组关联时出错: {e}")
-                            continue
-                            
+                    # 获取关联的列表
+                    relations = page['properties'].get('转发群聊分组', {}).get('relation', [])
+                    
+                    # 将群组添加到每个关联的列表中
+                    for relation in relations:
+                        list_page = self.notion.pages.retrieve(relation['id'])
+                        list_id = list_page['properties']['分组编号']['number']
+                        if list_id in lists:
+                            lists[list_id].groups.append({
+                                'group_name': group_name,
+                                'wxid': wxid
+                            })
                 except Exception as e:
                     logger.error(f"处理群组时出错: {e}")
                     continue
@@ -190,81 +174,24 @@ class NotionManager:
                     }
                 }
             )
-            logger.debug(f"成功更新群组 wxid: {wxid}")
+            logger.debug(f"成功更新群组 wxid 到 Notioin: {wxid}")
         except Exception as e:
-            logger.error(f"更新群组 wxid 失败: {e}")
+            logger.error(f"更新群组 wxid 到 Notion 失败: {e}")
 
     def get_groups_by_list_id(self, list_id: int) -> List[str]:
         """根据列表ID获取对应的群组wxid列表（从本地缓存读取）"""
         try:
-            # 1. 首先获取列表信息
-            response = self.notion.databases.query(
-                database_id=self.lists_db_id,
-                filter={
-                    "property": "分组编号",
-                    "number": {
-                        "equals": list_id
-                    }
-                }
-            )
-            
-            # 添加响应数据的调试日志
-            logger.debug(f"Notion API 响应数据: {response}")
-
-            if not response['results']:
-                logger.warning(f"未找到ID为 {list_id} 的列表")
-                return []
-
-            # 2. 获取列表名称和关联信息
-            list_page = response['results'][0]
-            
-            # 添加完整的页面属性调试日志
-            logger.debug(f"列表页面完整属性: {list_page['properties']}")
-            
-            list_name = list_page['properties'].get('组名', {}).get('title', [{}])[0].get('text', {}).get('content', '未知列表')
-            logger.info(f"正在处理列表：{list_id}（{list_name}）")
-            
-            # 3. 获取关联的群组
-            groups_relation = list_page['properties'].get('包含群聊', {})
-            logger.debug(f"关联属性详细信息: {groups_relation}")
-            
-            groups_relation = groups_relation.get('relation', [])
-            if not groups_relation:
-                logger.warning(f"列表 {list_id} 未找到群组关联属性")
-                return []
-
-            logger.info(f"列表 {list_id}（{list_name}）关联了 {len(groups_relation)} 个群组")
-
-            # 4. 获取每个群组的详细信息
-            all_groups = []
-            for relation in groups_relation:
-                try:
-                    group_page = self.notion.pages.retrieve(relation['id'])
-                    
-                    name_array = group_page['properties'].get('群名', {}).get('title', [])
-                    if name_array:
-                        group_name = name_array[0]['text']['content']
-                        logger.info(f"处理群组: {group_name}")
-                        
-                        # 只从 Notion 中获取已保存的 wxid
-                        saved_wxid = group_page['properties'].get('微信群ID', {}).get('rich_text', [])
-                        if saved_wxid and saved_wxid[0]['text']['content']:
-                            wxid = saved_wxid[0]['text']['content']
-                            all_groups.append(wxid)
-                            logger.info(f"使用已保存的群组 wxid: {group_name} ({wxid})")
-                        else:
-                            logger.warning(f"群组 {group_name} 未找到已保存的 wxid")
-                    else:
-                        logger.warning(f"群组 {relation['id']} 没有群名属性")
-                    
-                except Exception as e:
-                    logger.error(f"处理群组 {relation['id']} 时出错: {e}")
-                    continue
-
-            return all_groups
-
+            lists = self.load_lists_from_local()
+            for lst in lists:
+                if lst.list_id == list_id:
+                    return [
+                        group['wxid'] 
+                        for group in lst.groups 
+                        if group.get('wxid')  # 只返回有 wxid 的群组
+                    ]
+            return []
         except Exception as e:
-            logger.error(f"获取群组列表失败: {e}", exc_info=True)
+            logger.error(f"获取群组列表失败: {e}")
             return []
 
     def refresh_lists(self) -> None:
@@ -277,24 +204,18 @@ class NotionManager:
         """获取所有允许发言的群组wxid列表"""
         try:
             groups = []
-            response = self.notion.databases.query(
-                database_id=self.groups_db_id,
-                filter={
-                    "property": "允许发言",
-                    "checkbox": {
-                        "equals": True
-                    }
-                }
-            )
+            lists = self.load_lists_from_local()
+            if not lists:  # 如果本地缓存不存在或为空
+                logger.warning("本地缓存不存在或为空，请先刷新列表")
+                return []
             
-            for page in response['results']:
-                name_array = page['properties'].get('群名', {}).get('title', [])
-                if name_array:
-                    group_name = name_array[0]['text']['content']
-                    group_wxid = self._get_group_wxid(group_name)
-                    if group_wxid:
-                        groups.append(group_wxid)
-                    
+            # 从所有列表中收集群组的 wxid
+            for lst in lists:
+                for group in lst.groups:
+                    if wxid := group.get('wxid'):  # 只添加有 wxid 的群组
+                        if wxid not in groups:  # 避免重复
+                            groups.append(wxid)
+            
             return groups
         except Exception as e:
             logger.error(f"获取允许群组失败: {e}")
