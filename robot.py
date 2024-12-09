@@ -22,8 +22,8 @@ from base.func_xinghuo_web import XinghuoWeb
 from configuration import Config
 from constants import ChatType, MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY, FRIEND_WELCOME_MSG
 from job_mgmt import Job
-from base.notion_manager import NotionManager
-from base.ncc_manager import NCCManager
+from ncc.notion_manager import NotionManager
+from ncc.ncc_manager import NCCManager
 import random  
 import os
 
@@ -381,97 +381,6 @@ class Robot(Job):
         for r in receivers:
             self.sendTextMsg(news, r)
 
-    def _handle_forward_admin_msg(self, msg: WxMsg) -> bool:
-        """处理转发管理员的消息"""
-        if msg.content == "转发":
-            if msg.sender in self.forward_admin:
-                self.forward_state = ForwardState.WAITING_CHOICE_MODE
-                self._send_forward_menu(msg.sender)
-                return True
-            else:
-                self.sendTextMsg("对不起，你未开通转发权限，私聊大松获取。", msg.sender)
-                return False
-    
-        elif self.forward_state == ForwardState.WAITING_CHOICE_MODE:
-            if msg.content == "刷新列表":
-                # 使用 notion_manager 的方法刷新本地缓存
-                if self.notion_manager.save_lists_to_local():
-                    self.sendTextMsg("已刷新转发列表", msg.sender)
-                else:
-                    self.sendTextMsg("刷新列表失败", msg.sender)
-                self._send_forward_menu(msg.sender)  # 重新发送菜单
-                return True
-            elif msg.content == "1":
-                self.forward_state = ForwardState.WAITING_MESSAGE
-                self.forward_message = []  # 初始化为列表，用于存储多条消息
-                self.sendTextMsg("请发送需要转发的内容（类型可以是公众号推文、视频号视频、文字、图片，数量不限），完成后回复：选择群聊", msg.sender)
-                return True
-            return True
-            
-        elif self.forward_state == ForwardState.WAITING_MESSAGE:
-            if msg.content == "选择群聊":
-                if not self.forward_message:
-                    self.sendTextMsg("还未收集到任何消息，请先发送需要转发的内容", msg.sender)
-                    return True
-                
-                self.forward_state = ForwardState.WAITING_CHOICE
-                # 从本地缓存获取列表信息
-                lists = self.notion_manager.load_lists_from_local()
-                if not lists:
-                    self.sendTextMsg("未找到可用的转发列表，请先使用【刷新列表】更新数据", msg.sender)
-                    self.forward_state = ForwardState.IDLE
-                    return True
-                    
-                response = f"已收集 {len(self.forward_message)} 条消息\n请选择转发列表编号：\n"
-                for lst in lists:
-                    response += f"{lst.list_id}. {lst.list_name}\n"
-                self.sendTextMsg(response, msg.sender)
-            else:
-                # 收集消息
-                self.forward_message.append(msg)
-                return True
-            
-        elif self.forward_state == ForwardState.WAITING_CHOICE:
-            try:
-                list_id = int(msg.content)
-                if self.forward_message:
-                    # 从本地缓存获取群组信息
-                    groups = self.notion_manager.get_groups_by_list_id(list_id)
-                    if not groups:
-                        self.sendTextMsg(f"未找到ID为 {list_id} 的列表或列表中没有有效的群组", msg.sender)
-                        self.forward_state = ForwardState.IDLE
-                        return True
-                        
-                    total_groups = len(groups)
-                    total_messages = len(self.forward_message)
-                    
-                    self.sendTextMsg(f"开始转发 {total_messages} 条消息到 {total_groups} 个群...", msg.sender)
-                    
-                    # 为每个群转发所有收集的消息
-                    for group in groups:
-                        for fwd_msg in self.forward_message:
-                            self.wcf.forward_msg(fwd_msg.id, group)
-                            time.sleep(random.uniform(0.5, 1))  # 添加随机延迟
-                        time.sleep(random.uniform(1, 2))  # 群与群之间的延迟
-                    
-                    self.sendTextMsg(f"转发完成！共转发 {total_messages} 条消息到 {total_groups} 个群", msg.sender)
-                
-                self.forward_state = ForwardState.IDLE
-                self.forward_message = []
-                return True
-                
-            except ValueError:
-                self.sendTextMsg("请输入正确的列表编号", msg.sender)
-                return True
-                
-        return False
-
-    def _send_forward_menu(self, receiver):
-        """发送转发模式的菜单"""
-        menu = ("已进入转发模式。\n"
-                "如果希望刷新群聊列表，回复：刷新列表\n"
-                "✨如果想直接转发，回复：1")
-        self.sendTextMsg(menu, receiver)
 
     def _forward_message(self, msg: WxMsg, group: str) -> None:
         """转发消息到指定群"""

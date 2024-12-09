@@ -68,8 +68,11 @@ class NotionManager:
     def get_all_lists(self) -> List[ForwardList]:
         """获取所有转发列表及其群组"""
         try:
+            logger.info("开始从 Notion 获取列表信息...")
             lists = {}
+            
             # 1. 获取所有启用的转发列表
+            logger.info("正在查询转发列表...")
             lists_response = self.notion.databases.query(
                 database_id=self.lists_db_id,
                 filter={
@@ -79,6 +82,7 @@ class NotionManager:
                     }
                 }
             )
+            logger.info(f"获取到 {len(lists_response['results'])} 个转发列表")
             
             # 2. 获取所有允许发言的群组
             groups_response = self.notion.databases.query(
@@ -151,7 +155,7 @@ class NotionManager:
             return list(lists.values())
             
         except Exception as e:
-            logger.error(f"获取列表失败: {e}")
+            logger.error(f"获取列表失败: {e}", exc_info=True)
             return []
 
     def _update_group_wxid(self, page_id: str, wxid: str) -> None:
@@ -224,7 +228,14 @@ class NotionManager:
     def save_lists_to_local(self) -> bool:
         """将列表信息保存到本地文件"""
         try:
+            logger.info("开始获取并保存列表信息...")
             lists = self.get_all_lists()
+            if not lists:
+                logger.error("未获取到任何列表信息")
+                return False
+            
+            logger.info(f"成功获取 {len(lists)} 个列表")
+            
             data = {
                 "last_updated": datetime.now().isoformat(),
                 "lists": [
@@ -237,13 +248,14 @@ class NotionManager:
                 ]
             }
             
+            logger.info(f"准备保存到: {self.local_data_path}")
             with open(self.local_data_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             
             logger.info("成功保存列表信息到本地")
             return True
         except Exception as e:
-            logger.error(f"保存列表信息到本地失败: {e}")
+            logger.error(f"保存列表信息到本地失败: {e}", exc_info=True)
             return False
 
     def load_lists_from_local(self) -> List[ForwardList]:
