@@ -406,7 +406,7 @@ class Robot(Job):
                 lists = self.notion_manager.get_all_lists()
                 response = f"已收集 {len(self.forward_message)} 条消息\n请选择转发列表编号：\n"
                 for lst in lists:
-                    response += f"{lst.list_id}. {lst.list_name} ({lst.description})\n"
+                    response += f"{lst.list_id}. {lst.list_name}\n"
                 self.sendTextMsg(response, msg.sender)
             else:
                 # 收集消息
