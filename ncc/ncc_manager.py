@@ -4,7 +4,7 @@ from .notion_manager import NotionManager
 import logging
 import time
 import random
-from configuration import Configuration
+from configuration import Configuration as Config
 
 logger = logging.getLogger(__name__)
 
@@ -15,15 +15,25 @@ class ForwardState(Enum):
     WAITING_CHOICE = "waiting_choice"
 
 class NCCManager:
-    def __init__(self, notion_manager: NotionManager, config: Configuration):
+    def __init__(self, notion_manager: NotionManager, config: Config):
         self.notion_manager = notion_manager
         self.forward_state = ForwardState.IDLE
         self.current_list_id = None
         self.forward_messages = []
         self.forward_admin = config.FORWARD_ADMINS
         
-    def handle_forward_admin_msg(self, msg) -> bool:
-        """处理转发管理员的消息"""
+    def _send_menu(self, receiver):
+        """发送NCC管理菜单"""
+        menu = (
+            "NCC社群管理：\n"
+            "1. 转发消息请回复：1\n"
+            "2. 发送【刷新列表】更新群组信息（每次更新Notion后，请操作一次）\n"
+            "3. 列表信息，请登陆查看：https://www.notion.so/bigsong/NCC-1564e93f5682805d9a2ff0519c24738b?pvs=4"
+        )
+        self.sendTextMsg(menu, receiver)
+        
+    def handle_message(self, msg) -> bool:
+        """统一处理所有NCC相关消息"""
         if msg.content == "ncc":
             if msg.sender in self.forward_admin:
                 self.forward_state = ForwardState.WAITING_CHOICE_MODE
@@ -32,8 +42,16 @@ class NCCManager:
             else:
                 self.sendTextMsg("对不起，你未开通ncc管理权限，私聊大松获取。", msg.sender)
                 return False
+            
+        # 如果已经在某个状态中，继续处理
+        if self.forward_state != ForwardState.IDLE:
+            return self._handle_forward_state(msg)
         
-        elif self.forward_state == ForwardState.WAITING_CHOICE_MODE:
+        return False
+
+    def _handle_forward_state(self, msg) -> bool:
+        """处理不同状态下的消息"""
+        if self.forward_state == ForwardState.WAITING_CHOICE_MODE:
             if msg.content == "刷新列表":
                 logger.info("收到刷新列表命令")
                 if self.notion_manager.save_lists_to_local():
@@ -45,10 +63,10 @@ class NCCManager:
             elif msg.content == "1":
                 self.forward_state = ForwardState.WAITING_MESSAGE
                 self.forward_messages = []
-                self.sendTextMsg("请发送需要转发的内容（支持公众号推文、视频号视频、文字、图片，数量不限��，完成后回复：选择群聊", msg.sender)
+                self.sendTextMsg("请发送需要转发的内容（支持公众号推文、视频号视频、文字、图片，数量不限，完成后回复：选择群聊", msg.sender)
                 return True
             return True
-            
+        
         elif self.forward_state == ForwardState.WAITING_MESSAGE:
             if msg.content == "选择群聊":
                 if not self.forward_messages:
@@ -102,16 +120,6 @@ class NCCManager:
                 return True
                 
         return False
-
-    def _send_menu(self, receiver):
-        """发送NCC管理菜单"""
-        menu = (
-            "NCC社群管理：\n"
-            "1. 转发消息请回复：1\n"
-            "2. 发送【刷新列表】更新群组信息（每次更新Notion后，请操作一次）\n"
-            "3. 列表信息，请登陆查看：https://www.notion.so/bigsong/NCC-1564e93f5682805d9a2ff0519c24738b?pvs=4"
-        )
-        self.sendTextMsg(menu, receiver)
 
     def _reset_state(self) -> None:
         """重置所有状态"""

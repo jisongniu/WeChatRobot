@@ -23,25 +23,25 @@ from configuration import Config
 from constants import ChatType, MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY, FRIEND_WELCOME_MSG
 from job_mgmt import Job
 from ncc.notion_manager import NotionManager
-from ncc.ncc_manager import NCCManager
+from ncc.ncc_manager import NCCManager, ForwardState
 import random  
 import os
 
 __version__ = "39.2.4.0"
 
 
-class ForwardState(Enum):
-    IDLE = auto()
-    WAITING_CHOICE_MODE = auto()  # 等待用户选择模式
-    WAITING_MESSAGE = auto()
-    WAITING_CHOICE = auto()
-
-
 class Robot(Job):
     """个性化自己的机器人
     """
 
-    def __init__(self, config: Config, wcf: Wcf, chat_type: int) -> None:
+    def __init__(self, config: Config, wcf: Wcf, chat_type: int = 0):
+        """初始化机器人
+        
+        Args:
+            config (Config): 配置对象
+            wcf (Wcf): wcf对象
+            chat_type (int, optional): 聊天类型. Defaults to 0.
+        """
         super().__init__()
         self.wcf = wcf
         self.config = config
@@ -93,9 +93,7 @@ class Robot(Job):
             groups_db_id=self.config.NOTION['GROUPS_DB_ID'],
             wcf=self.wcf
         )
-        self.ncc_manager = NCCManager(self.notion_manager)
-        self.forward_state = ForwardState.IDLE
-        self.forward_message = None
+        self.ncc_manager = NCCManager(self.notion_manager, self.config)
         self.forward_admin = config.FORWARD_ADMINS
 
     @staticmethod
@@ -200,17 +198,10 @@ class Robot(Job):
                     self.LOG.info("已更新")  # 记录日志 
                     return
 
-            # 处理管理员的 NCC 和转发命令（仅限私聊）
+            # 处理管理员的 NCC 命令（仅限私聊）
             if msg.sender in self.forward_admin:
-                # 如果是 NCC 相关命令
-                if msg.content.startswith("ncc") or self.ncc_manager.current_mode == "forward":
-                    response = self.ncc_manager.handle_command(msg.content)
-                    self.sendTextMsg(response, msg.sender)
-                    return
-                
-                # 如果是转发相关命令
-                if self.forward_state != ForwardState.IDLE or msg.content == "转发":
-                    if self._handle_forward_admin_msg(msg):
+                if msg.content == "ncc" or self.ncc_manager.forward_state != ForwardState.IDLE:
+                    if self.ncc_manager.handle_message(msg):
                         return
             
             # 只有消息以"问："开头时才触发AI对话
@@ -380,20 +371,3 @@ class Robot(Job):
         news = News().get_important_news()
         for r in receivers:
             self.sendTextMsg(news, r)
-
-
-    def _forward_message(self, msg: WxMsg, group: str) -> None:
-        """转发消息到指定群"""
-        try:
-            if msg.type == 0x01:  # 文本消息
-                self.wcf.send_text(msg.content, group)
-            elif msg.type == 0x03:  # 图片消息
-                self.wcf.send_image(msg.file, group)
-            elif msg.type == 0x25:  # 链接消息
-                self.wcf.send_xml(msg.content, group)
-            elif msg.type == 0x2B:  # 视频号视频
-                self.wcf.send_xml(msg.content, group)
-            # 可以根据需要添加更多消息类型的支持
-            time.sleep(random.uniform(1, 2))  # 添加随机延迟，避免频率过快
-        except Exception as e:
-            self.LOG.error(f"转发消息到群 {group} 失败: {e}")
