@@ -93,7 +93,11 @@ class Robot(Job):
             groups_db_id=self.config.NOTION['GROUPS_DB_ID'],
             wcf=self.wcf
         )
-        self.ncc_manager = NCCManager(self.notion_manager, self.config)
+        self.ncc_manager = NCCManager(
+            self.notion_manager, 
+            self.config,
+            self.wcf
+        )
         self.forward_admin = config.FORWARD_ADMINS
 
     @staticmethod
