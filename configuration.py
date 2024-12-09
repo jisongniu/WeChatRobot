@@ -30,7 +30,7 @@ class Config(object):
         self.NOTION = yconfig["NOTION"]
         self.NEWS = yconfig["news"]["receivers"]
         self.REPORT_REMINDER = yconfig["report_reminder"]["receivers"]
-
+        self.FORWARD_ADMINS = yconfig.get("FORWARD_ADMINS", [])
         self.CHATGPT = yconfig.get("chatgpt", {})
         self.TIGERBOT = yconfig.get("tigerbot", {})
         self.XINGHUO_WEB = yconfig.get("xinghuo_web", {})
