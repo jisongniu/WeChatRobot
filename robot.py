@@ -94,9 +94,9 @@ class Robot(Job):
             wcf=self.wcf
         )
         self.ncc_manager = NCCManager(
-            self.notion_manager, 
-            self.config,
-            self.wcf
+            notion_manager=self.notion_manager,
+            config=self.config,
+            wcf=self.wcf
         )
         self.forward_admin = config.FORWARD_ADMINS
 

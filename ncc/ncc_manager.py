@@ -15,12 +15,13 @@ class ForwardState(Enum):
     WAITING_CHOICE = "waiting_choice"
 
 class NCCManager:
-    def __init__(self, notion_manager: NotionManager, config: Config):
+    def __init__(self, notion_manager: NotionManager, config: Config, wcf):
         self.notion_manager = notion_manager
         self.forward_state = ForwardState.IDLE
         self.current_list_id = None
         self.forward_messages = []
         self.forward_admin = config.FORWARD_ADMINS
+        self.wcf = wcf
         
     def _send_menu(self, receiver):
         """发送NCC管理菜单"""
@@ -130,3 +131,7 @@ class NCCManager:
     def refresh_lists(self) -> bool:
         """刷新并保存列表信息"""
         return self.notion_manager.save_lists_to_local()
+
+    def sendTextMsg(self, msg: str, receiver: str) -> None:
+        """发送文本消息"""
+        self.wcf.send_text(msg, receiver)
