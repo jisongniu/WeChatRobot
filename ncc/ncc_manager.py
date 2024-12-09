@@ -86,7 +86,7 @@ class NCCManager:
                     response += f"{lst.list_id}. {lst.list_name}\n"
                 self.sendTextMsg(response, msg.sender)
             else:
-                # 收集消息
+                # 收集消息，支持所有类型
                 self.forward_messages.append(msg)
                 return True
             
@@ -105,13 +105,21 @@ class NCCManager:
                     
                     self.sendTextMsg(f"开始转发 {total_messages} 条消息到 {total_groups} 个群...", msg.sender)
                     
+                    success_count = 0
+                    failed_count = 0
+                    
                     for group in groups:
                         for fwd_msg in self.forward_messages:
-                            self.wcf.forward_msg(fwd_msg.id, group)
+                            result = self.wcf.forward_msg(fwd_msg.id, group)
+                            if result == 1:
+                                success_count += 1
+                            else:
+                                failed_count += 1
                             time.sleep(random.uniform(0.5, 1))
                         time.sleep(random.uniform(1, 2))
                     
-                    self.sendTextMsg(f"转发完成！共转发 {total_messages} 条消息到 {total_groups} 个群", msg.sender)
+                    status = f"转发完成！\n成功：{success_count} 条\n失败：{failed_count} 条\n总计：{total_messages} 条消息到 {total_groups} 个群"
+                    self.sendTextMsg(status, msg.sender)
                 
                 self._reset_state()
                 return True
