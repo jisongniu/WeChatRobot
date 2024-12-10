@@ -75,7 +75,7 @@ class NCCManager:
             elif msg.content == "1":
                 self.forward_state = ForwardState.WAITING_MESSAGE
                 self.forward_messages = []
-                self.sendTextMsg("请发送需要转发的内容（支持公众号、推文、视频号、文字、图片、合并消息，数量不限，完毕后输入➡️选择群聊", msg.sender)
+                self.sendTextMsg("请发送需要转发的内容，支持公众号、推文、视频号、文字、图片、合并消息，一个一个来", msg.sender)
                 return True
             return True
         

@@ -173,13 +173,20 @@ class Robot(Job):
         :param msg: 微信消息结构
         :return: 处理状态，`True` 成功，`False` 失败
         """
+        rsp = None  # 初始化响应变量
         if msg.content.startswith("【问：】"):
             msg.content = msg.content.replace("【问：】", "")
-            rsp = self.toAIchat(msg)
+            return self.toAIchat(msg)  # 直接返回 AI 处理结果
         elif "机器人" in msg.content:
-            rsp = "有事【问：】开头，没事憾找我，滚。"
-        self.sendTextMsg(rsp, msg.roomid if msg.from_group() else msg.sender)
-        return True
+            rsp = "有事【问：】开头，没事憋找我，滚。"
+        else:
+            rsp = None  # 不回复
+            
+        if rsp:  # 只有在有响应时才发送
+            self.sendTextMsg(rsp, msg.roomid if msg.from_group() else msg.sender)
+            return True
+            
+        return False
         
 
     
@@ -316,7 +323,7 @@ class Robot(Job):
             def delayed_accept():
                 try:
                     delay = random.randint(MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY)
-                    self.LOG.info(f"将在{delay}秒后通过好友请求")
+                    self.LOG.info(f"将在{delay}秒后通过好���请求")
                     time.sleep(delay)
                     
                     self.accept_friend_request(msg)
@@ -349,7 +356,7 @@ class Robot(Job):
             self.LOG.error(f"同意好友出错：{e}")
     
     def get_friend_by_wxid(self, wxid):
-        """根据wxid获取好友信息
+        """根据wxid获取好友���息
         Args:
             wxid: 好友的wxid
         Returns:
