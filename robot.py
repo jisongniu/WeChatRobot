@@ -93,6 +93,9 @@ class Robot(Job):
             groups_db_id=self.config.NOTION['GROUPS_DB_ID'],
             wcf=self.wcf
         )
+        # 初始化时加载一次群组列表
+        self.allowed_groups = self.notion_manager.get_all_allowed_groups()
+        
         self.ncc_manager = NCCManager(
             notion_manager=self.notion_manager,
             config=self.config,
@@ -202,9 +205,8 @@ class Robot(Job):
 
         # 群聊消息
         if msg.from_group():
-            # 如果在群里被 @，看是否在notion里允许响应的群列表里
-            allowed_groups = self.notion_manager.get_all_allowed_groups()
-            if msg.roomid not in allowed_groups:  # 不在允许响应的群列表里，忽略
+            # 使用缓存的群组列表检查是否允许响应
+            if msg.roomid not in self.allowed_groups:
                 return
 
             if msg.is_at(self.wxid):  # 被@的话
@@ -226,6 +228,7 @@ class Robot(Job):
         if msg.from_self():
             if msg.type == 0x01 and msg.content == "^更新$":  # 只处理文本消息的更新命令
                 self.config.reload()
+                self.allowed_groups = self.notion_manager.get_all_allowed_groups()
                 self.LOG.info("已更新")
             return
 
@@ -263,7 +266,7 @@ class Robot(Job):
         Thread(target=innerProcessMsg, name="GetMessage", args=(self.wcf,), daemon=True).start()
 
     def sendTextMsg(self, msg: str, receiver: str, at_list: str = "") -> None:
-        """ 发送消息
+        """ ��送消息
         :param msg: 消息字符串
         :param receiver: 接收人wxid或者群id
         :param at_list: 要@的wxid, @所有人的wxid为：notify@all
@@ -295,7 +298,7 @@ class Robot(Job):
 
     def getAllContacts(self) -> dict:
         """
-        获取联系人（包括好友、公众号、服务号、群成员……）
+        获取联系人（包括好友、公众号���服务号、群成员……）
         格式: {"wxid": "NickName"}
         """
         contacts = self.wcf.query_sql("MicroMsg.db", "SELECT UserName, NickName FROM Contact;")
@@ -323,7 +326,7 @@ class Robot(Job):
             def delayed_accept():
                 try:
                     delay = random.randint(MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY)
-                    self.LOG.info(f"将在{delay}秒后通过好���请求")
+                    self.LOG.info(f"将在{delay}秒后通过好友请求")
                     time.sleep(delay)
                     
                     self.accept_friend_request(msg)
@@ -356,7 +359,7 @@ class Robot(Job):
             self.LOG.error(f"同意好友出错：{e}")
     
     def get_friend_by_wxid(self, wxid):
-        """根据wxid获取好友���息
+        """根据wxid获取好友信息
         Args:
             wxid: 好友的wxid
         Returns:
