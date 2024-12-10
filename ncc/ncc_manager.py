@@ -42,6 +42,9 @@ class NCCManager:
         
     def handle_message(self, msg) -> bool:
         """统一处理所有NCC相关消息"""
+        # 添加调试日志
+        logger.info(f"handle_message 收到消息: type={msg.type}, content={msg.content}")
+        
         if msg.content == "ncc":
             if msg.sender in self.forward_admin:
                 self.forward_state = ForwardState.WAITING_CHOICE_MODE
@@ -53,6 +56,7 @@ class NCCManager:
             
         # 如果已经在某个状态中，继续处理
         if self.forward_state != ForwardState.IDLE:
+            logger.info(f"当前状态: {self.forward_state}")
             return self._handle_forward_state(msg)
         
         return False
@@ -75,7 +79,11 @@ class NCCManager:
                 return True
             return True
         
+        #信息收集阶段
         elif self.forward_state == ForwardState.WAITING_MESSAGE:
+            # 添加调试日志
+            logger.info(f"收到消息，类型: {msg.type}, 内容: {msg.content}")
+            
             if msg.content == "选择群聊":
                 if not self.forward_messages:
                     self.sendTextMsg("还未收集到任何消息，请先发送需要转发的内容", msg.sender)
@@ -92,27 +100,34 @@ class NCCManager:
                 # 遍历列表，筛选符合条件的群聊
                 for lst in lists:
                     response += f"{lst.list_id} 👈 {lst.list_name}\n"
-                # 发送群聊列表给消息发送者
+                # 发送群聊列表给发送者，以供选择
                 self.sendTextMsg(response, msg.sender)
-            else:
-                # 收集消息，如果是图片先下载
-                if msg.type == 3:  # 图片消息
-                    try:
-                        img_path = self.wcf.download_image(msg.id, msg.extra, self.images_dir, timeout=120)
-                        if not img_path or not os.path.exists(img_path):
-                            self.sendTextMsg("图片下载失败，请检查图片是否正常", msg.sender)
-                            return True
-                    except TimeoutError:
-                        self.sendTextMsg("图片下载超时，请稍后重试", msg.sender)
-                        return True
-                    except Exception as e:
-                        logger.error(f"图片下载失败: {e}")
-                        self.sendTextMsg("图片下载异常，请联系管理员", msg.sender)
-                        return True
-                
-                self.forward_messages.append(msg)
                 return True
             
+            try:
+                # 只有图片消息需要特殊处理（提前下载）
+                if msg.type == 3:
+                    logger.info("检测到图片消息，准备下载")
+                    img_path = self.wcf.download_image(msg.id, msg.extra, self.images_dir, timeout=120)
+                    if not img_path or not os.path.exists(img_path):
+                        self.sendTextMsg("图片下载失败，请检查图片是否正常", msg.sender)
+                        return True
+                    logger.info(f"图片下载成功: {img_path}")
+                
+                # 所有消息都直接添加到收集器
+                self.forward_messages.append(msg)
+                logger.info(f"消息已添加到收集器，当前数量: {len(self.forward_messages)}")
+                self.sendTextMsg(f"已收集 {len(self.forward_messages)} 条消息，继续发送或者：选择群聊", msg.sender)
+                
+            except TimeoutError:
+                logger.error("图片下载超时")
+                self.sendTextMsg("图片下载超时，请稍后重试", msg.sender)
+            except Exception as e:
+                logger.error(f"消息收集失败: {e}", exc_info=True)  # 添加完整的异常堆栈
+                self.sendTextMsg("消息收集异常，请联系管理员", msg.sender)
+            return True
+
+        #转发阶段    
         elif self.forward_state == ForwardState.WAITING_CHOICE:
             try:
                 list_id = int(msg.content)

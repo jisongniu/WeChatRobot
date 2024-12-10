@@ -6,7 +6,7 @@ import time
 import xml.etree.ElementTree as ET
 from queue import Empty
 from threading import Thread
-from base.func_zhipu import ZhiPu
+# from base.func_zhipu import ZhiPu  # 不需要zhipu的话就不用
 from enum import Enum, auto
 from typing import List, Optional
 
@@ -60,8 +60,8 @@ class Robot(Job):
                 self.chat = ChatGLM(self.config.CHATGLM)
             elif chat_type == ChatType.BardAssistant.value and BardAssistant.value_check(self.config.BardAssistant):
                 self.chat = BardAssistant(self.config.BardAssistant)
-            elif chat_type == ChatType.ZhiPu.value and ZhiPu.value_check(self.config.ZhiPu):
-                self.chat = ZhiPu(self.config.ZhiPu)
+            # elif chat_type == ChatType.ZhiPu.value and ZhiPu.value_check(self.config.ZhiPu):
+            #     self.chat = ZhiPu(self.config.ZhiPu)
             else:
                 self.LOG.warning("未配置模型")
                 self.chat = None
@@ -76,8 +76,8 @@ class Robot(Job):
                 self.chat = ChatGLM(self.config.CHATGLM)
             elif BardAssistant.value_check(self.config.BardAssistant):
                 self.chat = BardAssistant(self.config.BardAssistant)
-            elif ZhiPu.value_check(self.config.ZhiPu):
-                self.chat = ZhiPu(self.config.ZhiPu)
+            # elif ZhiPu.value_check(self.config.ZhiPu):
+            #     self.chat = ZhiPu(self.config.ZhiPu)
             else:
                 self.LOG.warning("未配置模型")
                 self.chat = None
@@ -106,12 +106,7 @@ class Robot(Job):
             return all(value is not None for key, value in args.items() if key != 'proxy')
         return False
 
-    def toAt(self, msg: WxMsg) -> bool:
-        """处理被 @ 消息
-        :param msg: 微信消息结构
-        :return: 处理状态，`True` 成功，`False` 失败
-        """
-        return self.toChitchat(msg)
+
 
     def toChengyu(self, msg: WxMsg) -> bool:
         """
@@ -139,13 +134,20 @@ class Robot(Job):
                         status = True
 
         return status
+    
+    def toAt(self, msg: WxMsg) -> bool:
+        """处理被 @ 消息
+        :param msg: 微信消息结构
+        :return: 处理状态，`True` 成功，`False` 失败
+        """
+        return self.toAIchat(msg)
 
-    def toChitchat(self, msg: WxMsg) -> bool:
-        """处理关键词：「问：」的消息，通过 ChatGPT 生成回复
+    def toAIchat(self, msg: WxMsg) -> bool:
+        """AI模式
         """
         # 如果没有配置 ChatGPT，返回固定回复
         if not self.chat:
-            rsp = "你@我干嘛？"
+            rsp = self.toChitchat(msg)
         else:  # 如果配置了 ChatGPT，通过 ChatGPT 生成回复
             # 从消息内容中移除 @ 和空格，得到问题
             q = re.sub(r"@.*?[\u2005|\s]", "", msg.content).replace(" ", "")
@@ -163,6 +165,24 @@ class Robot(Job):
         else:  # 如果没有获取到回复，记录错误日志
             self.LOG.error(f"无法从 ChatGPT 获得答案")
             return False  # 返回处理失败
+        
+        
+    def toChitchat(self, msg: WxMsg) -> bool:
+        """
+        处理闲聊消息
+        :param msg: 微信消息结构
+        :return: 处理状态，`True` 成功，`False` 失败
+        """
+        if msg.content.startswith("【问：】"):
+            msg.content = msg.content.replace("【问：】", "")
+            rsp = self.toAIchat(msg)
+        elif "机器人" in msg.content:
+            rsp = "有事【问：】开头，没事憾找我，滚。"
+        self.sendTextMsg(rsp, msg.roomid if msg.from_group() else msg.sender)
+        return True
+        
+
+    
 
     def processMsg(self, msg: WxMsg) -> None:
         """当接收到消息的时候，会调用本方法。如果不实现本方法，则打印原始消息。
@@ -180,7 +200,7 @@ class Robot(Job):
             if msg.roomid not in allowed_groups:  # 不在允许响应的群列表里，忽略
                 return
 
-            if msg.is_at(self.wxid):  # 被@
+            if msg.is_at(self.wxid):  # 被@的话
                 self.toAt(msg)
             else:  # 其他消息
                 self.toChitchat(msg)
@@ -189,33 +209,24 @@ class Robot(Job):
         # 非群聊信息，按消息类型进行处理
         if msg.type == 37:  # 好友请求
             self.handle_friend_request(msg)
+            return
 
         elif msg.type == 10000:  # 系统信息
             self.sayHiToNewFriend(msg)
+            return
 
-        elif msg.type == 0x01:  # 文本消息
-            # 让配置加载更灵活，自己可以更新配置。也可以利用定时任务更新。
+        # 处理自己发送的消息
+        if msg.from_self():
+            if msg.type == 0x01 and msg.content == "^更新$":  # 只处理文本消息的更新命令
+                self.config.reload()
+                self.LOG.info("已更新")
+            return
 
-            if msg.from_self():  # 判断消息是否是机器人自己发送的
-                if msg.content == "^更新$":  # 判断消息内容是否匹配正则表达式 "^更新$"
-                    self.config.reload()  # 重新加载配置文件
-                    self.LOG.info("已更新")  # 记录日志 
+        # 处理管理员的 NCC 命令（仅限私聊）
+        if msg.sender in self.forward_admin:
+            if msg.content == "ncc" or self.ncc_manager.forward_state != ForwardState.IDLE:
+                if self.ncc_manager.handle_message(msg):
                     return
-
-            # 处理管理员的 NCC 命令（仅限私聊）
-            if msg.sender in self.forward_admin:
-                if msg.content == "ncc" or self.ncc_manager.forward_state != ForwardState.IDLE:
-                    if self.ncc_manager.handle_message(msg):
-                        return
-            
-            # 只有消息以"问："开头时才触发AI对话
-            if msg.content.startswith("问："):
-                # 移除"问："前缀
-                question = msg.content[2:]
-                if msg.from_group():
-                    self.sendTextMsg(self.chat.get_answer(question, msg.roomid), msg.roomid, msg.sender)
-                else:
-                    self.sendTextMsg(self.chat.get_answer(question, msg.sender), msg.sender)
 
     def onMsg(self, msg: WxMsg) -> int:
         try:
