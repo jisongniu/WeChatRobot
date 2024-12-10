@@ -27,7 +27,7 @@ from ncc.ncc_manager import NCCManager, ForwardState
 import random  
 import os
 
-__version__ = "39.2.4.0"
+__version__ = "39.3.3.3"
 
 
 class Robot(Job):
