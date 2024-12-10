@@ -5,6 +5,9 @@ import logging
 import time
 import random
 from configuration import Configuration as Config
+import os
+from wcferry import WxMsg
+from threading import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +25,10 @@ class NCCManager:
         self.forward_messages = []
         self.forward_admin = config.FORWARD_ADMINS
         self.wcf = wcf
+        self.images_dir = os.path.join(os.path.dirname(__file__), "ncc_images")
+        if not os.path.exists(self.images_dir):
+            os.makedirs(self.images_dir)
+        self.image_lock = Lock()
         
     def _send_menu(self, receiver):
         """发送NCC管理菜单"""
@@ -64,7 +71,7 @@ class NCCManager:
             elif msg.content == "1":
                 self.forward_state = ForwardState.WAITING_MESSAGE
                 self.forward_messages = []
-                self.sendTextMsg("请发送需要转发的内容（支持公众号推文、视频号视频、文字、图片，数量不限，完成后回复：选择群聊", msg.sender)
+                self.sendTextMsg("请发送需要转发的内容（支持公众号、推文、视频号、文字、图片、合并消息，数量不限，完毕后输入➡️选择群聊", msg.sender)
                 return True
             return True
         
@@ -81,12 +88,28 @@ class NCCManager:
                     self._reset_state()
                     return True
                     
-                response = f"已收集 {len(self.forward_messages)} 条消息\n请选择转发列表编号：\n"
+                response = f"已收集 {len(self.forward_messages)} 条消息\n请选择想要转发的分组编号：\n"
+                # 遍历列表，筛选符合条件的群聊
                 for lst in lists:
-                    response += f"{lst.list_id}. {lst.list_name}\n"
+                    response += f"{lst.list_id} 👈 {lst.list_name}\n"
+                # 发送群聊列表给消息发送者
                 self.sendTextMsg(response, msg.sender)
             else:
-                # 收集消息，支持所有类型
+                # 收集消息，如果是图片先下载
+                if msg.type == 3:  # 图片消息
+                    try:
+                        img_path = self.wcf.download_image(msg.id, msg.extra, self.images_dir, timeout=120)
+                        if not img_path or not os.path.exists(img_path):
+                            self.sendTextMsg("图片下载失败，请检查图片是否正常", msg.sender)
+                            return True
+                    except TimeoutError:
+                        self.sendTextMsg("图片下载超时，请稍后重试", msg.sender)
+                        return True
+                    except Exception as e:
+                        logger.error(f"图片下载失败: {e}")
+                        self.sendTextMsg("图片下载异常，请联系管理员", msg.sender)
+                        return True
+                
                 self.forward_messages.append(msg)
                 return True
             
@@ -110,8 +133,7 @@ class NCCManager:
                     
                     for group in groups:
                         for fwd_msg in self.forward_messages:
-                            result = self.wcf.forward_msg(fwd_msg.id, group)
-                            if result == 1:
+                            if self._forward_message(fwd_msg, group):
                                 success_count += 1
                             else:
                                 failed_count += 1
@@ -129,7 +151,27 @@ class NCCManager:
                 return True
                 
         return False
-
+    
+    def _forward_message(self, msg: WxMsg, receiver: str) -> bool:
+        """根据消息类型选择合适的转发方式"""
+        if msg.type == 3:  # 图片消息
+            try:
+                with self.image_lock:  # 只锁定发送过程
+                    img_path = os.path.join(self.images_dir, f"{msg.id}_{msg.extra}")
+                    if os.path.exists(img_path):
+                        if self.wcf.send_image(img_path, receiver) == 0:
+                            time.sleep(0.5)  # 等待发送完成
+                            return True
+            except Exception as e:
+                logger.error(f"图片发送失败: {e}")
+                return False
+            
+            # 如果发送失败，尝试直接转发
+            return self.wcf.forward_msg(msg.id, receiver) == 1
+        
+        # 其他类型消息使用 forward_msg
+        return self.wcf.forward_msg(msg.id, receiver) == 1
+    
     def _reset_state(self) -> None:
         """重置所有状态"""
         self.forward_state = ForwardState.IDLE
@@ -143,3 +185,5 @@ class NCCManager:
     def sendTextMsg(self, msg: str, receiver: str) -> None:
         """发送文本消息"""
         self.wcf.send_text(msg, receiver)
+
+    
