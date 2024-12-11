@@ -34,9 +34,11 @@ class NCCManager:
         """发送NCC管理菜单"""
         menu = (
             "NCC社群管理：\n"
-            "1. 转发消息请回复：1\n"
-            "2. 发送【刷新列表】更新群组信息（每次更新Notion后，请操作一次）\n"
-            "3. 列表信息，请登陆查看：https://www.notion.so/bigsong/NCC-1564e93f5682805d9a2ff0519c24738b?pvs=4"
+            "请回复指定数字\n"
+            "1 👈 转发消息\n"
+            "2 👈 刷新群聊列表，更新列表后请操作再转发\n"
+            "3 👈 查看群聊列表信息\n"
+            "4 👈 查看团队成员"
         )
         self.sendTextMsg(menu, receiver)
         
@@ -64,7 +66,7 @@ class NCCManager:
     def _handle_forward_state(self, msg) -> bool:
         """处理不同状态下的消息"""
         if self.forward_state == ForwardState.WAITING_CHOICE_MODE:
-            if msg.content == "刷新列表":
+            if msg.content == "2":
                 logger.info("收到刷新列表命令")
                 if self.notion_manager.save_lists_to_local():
                     self.sendTextMsg("已刷新转发列表", msg.sender)
@@ -76,6 +78,20 @@ class NCCManager:
                 self.forward_state = ForwardState.WAITING_MESSAGE
                 self.forward_messages = []
                 self.sendTextMsg("请发送需要转发的内容，支持公众号、推文、视频号、文字、图片、合并消息，一个一个来", msg.sender)
+                return True
+            elif msg.content == "3":
+                self.sendTextMsg("列表信息，请登陆查看：https://www.notion.so/bigsong/NCC-1564e93f5682805d9a2ff0519c24738b?pvs=4", msg.sender)
+                return True
+            elif msg.content == "4":
+                # 获取管理员昵称列表
+                admin_names = []
+                for admin_id in self.forward_admin:
+                    nickname = self.wcf.get_info_by_wxid(admin_id).get('name', admin_id)
+                    admin_names.append(nickname)
+                
+                # 格式化并发送消息
+                admin_list = "NCC团队成员：\n" + "\n".join(f"👤 {name}" for name in admin_names)
+                self.sendTextMsg(admin_list, msg.sender)
                 return True
             return True
         
@@ -107,7 +123,7 @@ class NCCManager:
             try:
                 # 只有图片消息需要特殊处理（提前下载）
                 if msg.type == 3:
-                    logger.info("检测到图片消息，准备下载")
+                    self.sendTextMsg("检测到图片消息，原图下载有点慢，等会儿", msg.sender)
                     img_path = self.wcf.download_image(msg.id, msg.extra, self.images_dir, timeout=120)
                     if not img_path or not os.path.exists(img_path):
                         self.sendTextMsg("图片下载失败，请检查图片是否正常", msg.sender)
