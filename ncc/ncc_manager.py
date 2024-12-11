@@ -38,7 +38,8 @@ class NCCManager:
             "1 👈 转发消息\n"
             "2 👈 刷新群聊列表，更新列表后请操作再转发\n"
             "3 👈 查看群聊列表信息\n"
-            "4 👈 查看团队成员"
+            "4 👈 查看团队成员\n"
+            "0 👈 退出管理模式"
         )
         self.sendTextMsg(menu, receiver)
         
@@ -65,6 +66,12 @@ class NCCManager:
 
     def _handle_forward_state(self, msg) -> bool:
         """处理不同状态下的消息"""
+        # 在任何状态下都可以退出
+        if msg.content == "0":
+            self._reset_state()
+            self.sendTextMsg("已退出管理模式", msg.sender)
+            return True
+
         if self.forward_state == ForwardState.WAITING_CHOICE_MODE:
             if msg.content == "2":
                 logger.info("收到刷新列表命令")
@@ -77,7 +84,7 @@ class NCCManager:
             elif msg.content == "1":
                 self.forward_state = ForwardState.WAITING_MESSAGE
                 self.forward_messages = []
-                self.sendTextMsg("请发送需要转发的内容，支持公众号、推文、视频号、文字、图片、合并消息，一个一个来", msg.sender)
+                self.sendTextMsg("请发送需要转发的内容，支持公众号、推文、视频号、文字、图片、合并消息，一个一个来\n发送【选择群聊】进入下一步\n随时发送【0】退出转发模式", msg.sender)
                 return True
             elif msg.content == "3":
                 self.sendTextMsg("列表信息，请登陆查看：https://www.notion.so/bigsong/NCC-1564e93f5682805d9a2ff0519c24738b?pvs=4", msg.sender)
@@ -88,11 +95,11 @@ class NCCManager:
                 for admin_id in self.forward_admin:
                     nickname = self.wcf.get_info_by_wxid(admin_id).get('name', admin_id)
                     admin_names.append(nickname)
-                
-                # 格式化并发送消息
-                admin_list = "NCC团队成员：\n" + "\n".join(f"👤 {name}" for name in admin_names)
+                admin_list = "成员：\n" + "\n".join(f"👤 {name}" for name in admin_names)
                 self.sendTextMsg(admin_list, msg.sender)
                 return True
+            else:
+                self.sendTextMsg("请输入有效的选项，或发送【0】退出转发模式", msg.sender)
             return True
         
         #信息收集阶段
@@ -150,7 +157,7 @@ class NCCManager:
                 if self.forward_messages:
                     groups = self.notion_manager.get_groups_by_list_id(list_id)
                     if not groups:
-                        self.sendTextMsg(f"未找到ID为 {list_id} 的列表或列表中没有有效的群组", msg.sender)
+                        self.sendTextMsg(f"未找到ID为 {list_id} 的列表或列表中没有有效的群组，退出管理模式", msg.sender)
                         self._reset_state()
                         return True
                         
@@ -178,7 +185,7 @@ class NCCManager:
                 return True
                 
             except ValueError:
-                self.sendTextMsg("请输入正确的列表编号", msg.sender)
+                self.sendTextMsg("请输入有效的选项，或发送【0】退出转发模式", msg.sender)
                 return True
                 
         return False
