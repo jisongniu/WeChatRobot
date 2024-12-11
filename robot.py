@@ -176,10 +176,11 @@ class Robot(Job):
         :param msg: 微信消息结构
         :return: 处理状态，`True` 成功，`False` 失败
         """
-        rsp = None  # 初始化响应变量
-        if msg.content.startswith("【问：】"):
-            msg.content = msg.content.replace("【问：】", "")
-            return self.toAIchat(msg)  # 直接返回 AI 处理结果
+        rsp = None
+        if msg.content.startswith("问：") or msg.content.startswith("【问：】"):
+            # 移除前缀
+            msg.content = msg.content.replace("问：", "").replace("【问：】", "")
+            return self.toAIchat(msg)
         elif "机器人" in msg.content:
             rsp = "有事【问：】开头，没事憋找我，滚。"
         else:
@@ -298,7 +299,7 @@ class Robot(Job):
 
     def getAllContacts(self) -> dict:
         """
-        获取联系人（包括好友、公众号���服务号、群成员……）
+        获取联系人（包括好友、公众号、服务号、群成员……）
         格式: {"wxid": "NickName"}
         """
         contacts = self.wcf.query_sql("MicroMsg.db", "SELECT UserName, NickName FROM Contact;")
@@ -344,19 +345,28 @@ class Robot(Job):
             Thread(target=delayed_accept, name="AcceptFriend").start()
 
     def accept_friend_request(self, msg):
-        """通过好友请求
-        Args:
-            msg: 好友请求消息
-        """
+        """通过好友请求"""
         try:
+            self.LOG.info(f"处理好友请求消息: {msg.content}")
             xml = ET.fromstring(msg.content)
-            v3 = xml.attrib["encryptusername"]
-            v4 = xml.attrib["ticket"]
-            scene = int(xml.attrib["scene"])
+            # 打印所有属性用于调试
+            self.LOG.debug(f"XML属性: {xml.attrib}")
+            
+            # 获取必要的字段
+            v3 = xml.attrib.get("encryptusername")
+            v4 = xml.attrib.get("ticket")
+            scene = int(xml.attrib.get("scene", "14"))  # 默认场景值为14
+            
+            if not all([v3, v4]):
+                self.LOG.error("缺少必要的字段")
+                return
+                
+            self.LOG.info(f"准备通过好友请求: v3={v3}, v4={v4}, scene={scene}")
             self.wcf.accept_new_friend(v3, v4, scene)
-            self.LOG.info(f"已通过好友请求: {msg.content}")
+            self.LOG.info("已通过好友请求")
+            
         except Exception as e:
-            self.LOG.error(f"同意好友出错：{e}")
+            self.LOG.error(f"同意好友出错：{e}", exc_info=True)
     
     def get_friend_by_wxid(self, wxid):
         """根据wxid获取好友信息
