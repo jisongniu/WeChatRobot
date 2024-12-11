@@ -181,7 +181,7 @@ class Robot(Job):
             # 移除前缀
             msg.content = msg.content.replace("问：", "").replace("【问：】", "")
             return self.toAIchat(msg)
-        elif "机器人" in msg.content:
+        elif "机器" in msg.content:
             rsp = "有事【问：】开头，没事憋找我，滚。"
         else:
             rsp = None  # 不回复
@@ -203,18 +203,12 @@ class Robot(Job):
         receivers = msg.roomid
         self.sendTextMsg(content, receivers, msg.sender)
         """
+        #被艾特或者被问：
+        if msg.is_at(self.wxid) or msg.content.startswith("问："):  # 被@的话
+            if msg.from_group() and msg.roomid not in self.allowed_groups:
+                return  # 如果是群消息且群不在允许列表中，直接返回
+            self.toAt(msg)  # 否则处理消息
 
-        # 群聊消息
-        if msg.from_group():
-            # 使用缓存的群组列表检查是否允许响应
-            if msg.roomid not in self.allowed_groups:
-                return
-
-            if msg.is_at(self.wxid):  # 被@的话
-                self.toAt(msg)
-            else:  # 其他消息
-                self.toChitchat(msg)
-            return  # 处理完群聊信息，后面就不需要处理了
 
         # 非群聊信息，按消息类型进行处理
         if msg.type == 37:  # 好友请求
@@ -233,10 +227,9 @@ class Robot(Job):
                 self.LOG.info("已更新")
             return
 
-        # 处理管理员的 NCC 命令（仅限私聊）
-        if msg.sender in self.forward_admin:
-            if msg.content == "ncc" or self.ncc_manager.forward_state != ForwardState.IDLE:
-                if self.ncc_manager.handle_message(msg):
+        # 处理 NCC 命令（仅限私聊）
+        if msg.content.lower() == "ncc" or self.ncc_manager.forward_state != ForwardState.IDLE:
+            if self.ncc_manager.handle_message(msg):
                     return
 
     def onMsg(self, msg: WxMsg) -> int:
@@ -267,7 +260,7 @@ class Robot(Job):
         Thread(target=innerProcessMsg, name="GetMessage", args=(self.wcf,), daemon=True).start()
 
     def sendTextMsg(self, msg: str, receiver: str, at_list: str = "") -> None:
-        """ ��送消息
+        """ 送消息
         :param msg: 消息字符串
         :param receiver: 接收人wxid或者群id
         :param at_list: 要@的wxid, @所有人的wxid为：notify@all
