@@ -45,7 +45,7 @@ class NCCManager:
         # 添加调试日志
         logger.info(f"handle_message 收到消息: type={msg.type}, content={msg.content}")
         
-        if msg.content == "ncc":
+        if msg.content.lower() == "ncc":
             if msg.sender in self.forward_admin:
                 self.forward_state = ForwardState.WAITING_CHOICE_MODE
                 self._send_menu(msg.sender)

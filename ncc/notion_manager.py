@@ -41,8 +41,8 @@ class NotionManager:
         # 确保数据目录存在
         os.makedirs(os.path.dirname(self.local_data_path), exist_ok=True)
 
-    def _get_group_wxid(self, group_name: str) -> Optional[str]:
-        """通过群名获取群wxid"""
+    def _get_all_group_wxids(self) -> Dict[str, str]:
+        """获取所有群聊的 wxid 映射"""
         if self._cache['wxid_map'] is None:
             # 使用 query_sql 获取所有群聊
             chatrooms = self.wcf.query_sql(
@@ -55,10 +55,12 @@ class NotionManager:
                 for room in chatrooms
             }
             logger.info(f"已缓存 {len(chatrooms)} 个群聊的wxid映射")
-            # 打印所有群名用于调试
-            logger.debug(f"所有群名: {list(self._cache['wxid_map'].keys())}")
+        return self._cache['wxid_map']
 
-        wxid = self._cache['wxid_map'].get(group_name)
+    def _get_group_wxid(self, group_name: str) -> Optional[str]:
+        """通过群名获取群wxid"""
+        wxid_map = self._get_all_group_wxids()
+        wxid = wxid_map.get(group_name)
         if wxid:
             logger.debug(f"找到群 {group_name} 的wxid: {wxid}")
         else:
@@ -136,6 +138,10 @@ class NotionManager:
                     # 获取群的 wxid
                     wxid = group_wxids.get(group_name)
                     
+                    # 如果找到了 wxid，更新到 Notion
+                    if wxid:
+                        self._update_group_wxid(page['id'], wxid)
+                    
                     # 获取关联的列表
                     relations = page['properties'].get('转发群聊分组', {}).get('relation', [])
                     
@@ -182,8 +188,41 @@ class NotionManager:
         except Exception as e:
             logger.error(f"更新群组 wxid 到 Notion 失败: {e}")
 
+    def get_all_allowed_groups(self) -> List[str]:
+        """获取所有允许机器人响应的群组wxid列表"""
+        try:
+            # 查询允许发言的群组
+            response = self.notion.databases.query(
+                database_id=self.groups_db_id,
+                filter={
+                    "property": "允许发言",  # Notion中标记是否允许机器人响应的字段
+                    "checkbox": {
+                        "equals": True
+                    }
+                }
+            )
+            
+            # 获取群组wxid映射
+            wxid_map = self._get_all_group_wxids()
+            
+            # 收集允许发言的群wxid
+            allowed_groups = []
+            for page in response['results']:
+                name_array = page['properties'].get('群名', {}).get('title', [])
+                if not name_array:
+                    continue
+                group_name = name_array[0]['text']['content']
+                if wxid := wxid_map.get(group_name):
+                    allowed_groups.append(wxid)
+            
+            return allowed_groups
+            
+        except Exception as e:
+            logger.error(f"获取允许响应的群组失败: {e}")
+            return []
+
     def get_groups_by_list_id(self, list_id: int) -> List[str]:
-        """根据列表ID获取对应的群组wxid列表（从本地缓存读取）"""
+        """根据列表ID获取该列表下可转发到的群组wxid列表"""
         try:
             lists = self.load_lists_from_local()
             for lst in lists:
@@ -195,7 +234,7 @@ class NotionManager:
                     ]
             return []
         except Exception as e:
-            logger.error(f"获取群组列表失败: {e}")
+            logger.error(f"获取转发列表的群组失败: {e}")
             return []
 
     def refresh_lists(self) -> None:
@@ -203,27 +242,6 @@ class NotionManager:
         self._cache['wxid_map'] = None
         logger.info("已刷新列表")
 
-
-    def get_all_allowed_groups(self) -> List[str]:
-        """获取所有允许发言的群组wxid列表"""
-        try:
-            groups = []
-            lists = self.load_lists_from_local()
-            if not lists:  # 如果本地缓存不存在或为空
-                logger.warning("本地缓存不存在或为空，请先刷新列表")
-                return []
-            
-            # 从所有列表中收集群组的 wxid
-            for lst in lists:
-                for group in lst.groups:
-                    if wxid := group.get('wxid'):  # 只添加有 wxid 的群组
-                        if wxid not in groups:  # 避免重复
-                            groups.append(wxid)
-            
-            return groups
-        except Exception as e:
-            logger.error(f"获取允许群组失败: {e}")
-            return []
 
     def save_lists_to_local(self) -> bool:
         """将列表信息保存到本地文件"""
@@ -276,7 +294,6 @@ class NotionManager:
                     groups=lst_data['groups']
                 ))
             
-            logger.info(f"成功从本地加载 {len(lists)} 个列表")
             return lists
         except Exception as e:
             logger.error(f"从本地加载列表信息失败: {e}")
