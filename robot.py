@@ -48,6 +48,7 @@ class Robot(Job):
         self.LOG = logging.getLogger("Robot")
         self.wxid = self.wcf.get_self_wxid()
         self.allContacts = self.getAllContacts()
+        self.processed_msgs = set()  # 添加消息去重集合
         # 选择模型
         if ChatType.is_in_chat_types(chat_type):
             if chat_type == ChatType.TIGER_BOT.value and TigerBot.value_check(self.config.TIGERBOT):
@@ -82,7 +83,6 @@ class Robot(Job):
                 self.LOG.warning("未配置模型")
                 self.chat = None
 
-        self.LOG.info(f"已选择: {self.chat}")
 
         # 确保数据目录存在
         os.makedirs("data", exist_ok=True)
@@ -211,9 +211,11 @@ class Robot(Job):
 
 
         # 非群聊信息，按消息类型进行处理
-        if msg.type == 37:  # 好友请求
-            self.handle_friend_request(msg)
-            return
+
+        # 好友请求,已经被 not implemented 了
+        # if msg.type == 37:  
+        #     self.handle_friend_request(msg)
+        #     return
 
         elif msg.type == 10000:  # 系统信息
             self.sayHiToNewFriend(msg)
@@ -221,7 +223,7 @@ class Robot(Job):
 
         # 处理自己发送的消息
         if msg.from_self():
-            if msg.type == 0x01 and msg.content == "^更新$":  # 只处理文本消息的更新命令
+            if msg.type == 0x01 and msg.content == "*更新":  # 只处理文本消息的更新命令
                 self.config.reload()
                 self.allowed_groups = self.notion_manager.get_all_allowed_groups()
                 self.LOG.info("已更新")
@@ -306,60 +308,90 @@ class Robot(Job):
             self.runPendingJobs()
             time.sleep(1)
 
-    def on_friend_request(self, func):
-        """好友请求装饰器"""
-        self.friend_request_handler = func
-        return func
 
     def handle_friend_request(self, msg):
         """处理好友请求"""
-        if hasattr(self, 'friend_request_handler'):
-            self.friend_request_handler(msg)
-        else:
-            # 使用默认的处理逻辑
+        try:
+            # 构造消息ID并检查是否处理过
+            msg_id = f"{msg.type}_{msg.id}_{msg.ts}"
+            if msg_id in self.processed_msgs:
+                self.LOG.info(f"好友请求已处理过，跳过: {msg_id}")
+                return
+            
+            # 添加到已处理集合（提前添加防止并发）
+            self.processed_msgs.add(msg_id)
+            
+            # 解析消息内容
+            xml_content = msg.content
+            self.LOG.info(f"收到新好友请求: {xml_content}")
+            
+            # 提取验证信息
+            v3_match = re.search(r'encryptusername="([^"]*)"', xml_content)
+            v4_match = re.search(r'ticket="([^"]*)"', xml_content)
+            scene_match = re.search(r'scene="(\d+)"', xml_content)
+            
+            if not (v3_match and v4_match and scene_match):
+                self.LOG.error("无法从消息中提取必要的验证信息")
+                return
+            
+            v3 = v3_match.group(1)
+            v4 = v4_match.group(1)
+            scene = int(scene_match.group(1))
+            
             def delayed_accept():
                 try:
                     delay = random.randint(MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY)
                     self.LOG.info(f"将在{delay}秒后通过好友请求")
                     time.sleep(delay)
                     
-                    self.accept_friend_request(msg)
+                    result = self.wcf.accept_new_friend(v3, v4, scene)
+                    self.LOG.info(f"通过好友请求结果: {result}")
                     
-                    time.sleep(1)
+                    if result == 1:
+                        self.LOG.info("好友请求通过成功")
+                    else:
+                        self.LOG.warning(f"好友请求通过失败，返回值: {result}")
                     
-                    new_friend = self.get_friend_by_wxid(msg.sender)
-                    if new_friend:
-                        welcome_msg = FRIEND_WELCOME_MSG
-                        self.sendTextMsg(welcome_msg, msg.sender)
-                        self.LOG.info(f"已发送欢迎消息给：{new_friend.nickname}")
                 except Exception as e:
-                    self.LOG.error(f"处理好友请求失败：{e}")
+                    self.LOG.error(f"处理好友请求失败：{e}", exc_info=True)
+                    self.LOG.debug(f"处理好友请求失败的详细信息: {e}")
             
             Thread(target=delayed_accept, name="AcceptFriend").start()
+                
+        except Exception as e:
+            self.LOG.error(f"处理好友请求主流程异常：{e}", exc_info=True)
 
     def accept_friend_request(self, msg):
         """通过好友请求"""
         try:
             self.LOG.info(f"处理好友请求消息: {msg.content}")
-            xml = ET.fromstring(msg.content)
-            # 打印所有属性用于调试
-            self.LOG.debug(f"XML属性: {xml.attrib}")
             
-            # 获取必要的字段
-            v3 = xml.attrib.get("encryptusername")
-            v4 = xml.attrib.get("ticket")
-            scene = int(xml.attrib.get("scene", "14"))  # 默认场景值为14
+            # 使用正则表达式提取 v3 和 v4
+            v3_match = re.search(r'encryptusername="([^"]*)"', msg.content)
+            v4_match = re.search(r'ticket="([^"]*)"', msg.content)
+            scene_match = re.search(r'scene="(\d+)"', msg.content)
             
-            if not all([v3, v4]):
-                self.LOG.error("缺少必要的字段")
+            if not (v3_match and v4_match):
+                self.LOG.error("无法从消息中提取必要的验证信息")
+                self.LOG.debug(f"消息内容: {msg.content}")
                 return
-                
-            self.LOG.info(f"准备通过好友请求: v3={v3}, v4={v4}, scene={scene}")
-            self.wcf.accept_new_friend(v3, v4, scene)
-            self.LOG.info("已通过好友请求")
+            
+            v3 = v3_match.group(1)
+            v4 = v4_match.group(1)
+            scene = int(scene_match.group(1)) if scene_match else 30  # 如果没有scene，默认使用30
+            
+            self.LOG.info(f"提取的验证信息: v3={v3}, v4={v4}, scene={scene}")
+            
+            # 调用 wcf 的接口通过好友请求
+            result = self.wcf.accept_new_friend(v3, v4, scene)
+            
+            if result == 1:
+                self.LOG.info("已成功通过好友请求")
+            else:
+                self.LOG.error(f"通过好友请求失败，返回值: {result}")
             
         except Exception as e:
-            self.LOG.error(f"同意好友出错：{e}", exc_info=True)
+            self.LOG.error(f"处理好友请求异常: {e}", exc_info=True)
     
     def get_friend_by_wxid(self, wxid):
         """根据wxid获取好友信息
@@ -385,11 +417,12 @@ class Robot(Job):
             return None
 
     def sayHiToNewFriend(self, msg: WxMsg) -> None:
+        """处理新好友入群后的欢迎消息"""
         nickName = re.findall(r"你已添加了(.*)，现在可以开始聊天了。", msg.content)
         if nickName:
             # 添加了好友，更新好友列表
             self.allContacts[msg.sender] = nickName[0]
-            self.sendTextMsg(f"Hi {nickName[0]}，我自动通过了你的好友请求。", msg.sender)
+            self.sendTextMsg(FRIEND_WELCOME_MSG, msg.sender)  
 
     def newsReport(self) -> None:
         receivers = self.config.NEWS

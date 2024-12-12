@@ -41,7 +41,7 @@ def main(chat_type: int):
     robot.LOG.info(f"WeChatRobot【{__version__}】成功启动···")
 
     # 机器人启动发送测试消息
-    robot.sendTextMsg("机器人启动成功！", "filehelper")
+    robot.sendTextMsg("启动成功！", "filehelper")
 
     # 接收消息
     # robot.enableRecvMsg()     # 可能会丢消息？
@@ -56,10 +56,6 @@ def main(chat_type: int):
     # 每天 16:30 提醒发日报周报月报
     robot.onEveryTime("16:30", ReportReminder.remind, robot=robot)
 
-    # 注册好友请求处理函数
-    @robot.on_friend_request
-    def on_friend_request(msg):
-        robot.handle_friend_request(msg)
 
     # 让机器人一直跑
     robot.keepRunningAndBlockProcess()
