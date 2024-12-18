@@ -43,7 +43,6 @@ class NotionManager:
         self.lists_db_id = lists_db_id
         self.groups_db_id = groups_db_id
         self.wcf = wcf
-        self._cache = {'wxid_map': None}
         self.local_data_path = "data/notion_cache.json"
         self.welcome_groups = {}  # {group_wxid: welcome_url}
         
@@ -82,32 +81,6 @@ class NotionManager:
         except Exception as e:
             logger.error(f"获取 Notion 数据失败: {e}", exc_info=True)
             return False
-
-    def _get_all_group_wxids(self) -> Dict[str, str]:
-        """获取所有群聊的 wxid 映射"""
-        if self._cache['wxid_map'] is None:
-            # 使用 query_sql 获取所有群聊
-            chatrooms = self.wcf.query_sql(
-                "MicroMsg.db",
-                "SELECT UserName, NickName FROM Contact WHERE Type=2 AND UserName LIKE '%@chatroom';"
-            )
-            # 构建群名到wxid的映射
-            self._cache['wxid_map'] = {
-                room['NickName']: room['UserName']
-                for room in chatrooms
-            }
-            logger.info(f"已缓存 {len(chatrooms)} 个群聊的wxid映射")
-        return self._cache['wxid_map']
-
-    def _get_group_wxid(self, group_name: str) -> Optional[str]:
-        """通过群名获取群wxid"""
-        wxid_map = self._get_all_group_wxids()
-        wxid = wxid_map.get(group_name)
-        if wxid:
-            logger.debug(f"找到群 {group_name} 的wxid: {wxid}")
-        else:
-            logger.warning(f"未找到群 {group_name} 的wxid")
-        return wxid
 
     def get_all_lists_and_groups(self) -> List[ForwardList]:
         """获取所有转发列表及其群组"""
@@ -242,23 +215,60 @@ class NotionManager:
             with open(self.local_data_path, 'r', encoding='utf-8') as f:
                 cache_data = json.load(f)
             
-            # 获取群组wxid映射
-            wxid_map = self._get_all_group_wxids()
-            
+            # 获取微信群 wxid 映射
+            wxid_map = {}
+            if self.wcf:
+                chatrooms = self.wcf.query_sql(
+                    "MicroMsg.db",
+                    "SELECT UserName, NickName FROM Contact WHERE Type=2 AND UserName LIKE '%@chatroom';"
+                )
+                wxid_map = {
+                    room['NickName']: room['UserName']
+                    for room in chatrooms
+                }
+
             # 从缓存中筛选允许发言的群组
             allowed_groups = []
-            for page in cache_data['groups']:
-                if not page['properties'].get('允许发言', {}).get('checkbox', True):
+            for page in cache_data.get('groups', []):
+                # 检查是否允许发言
+                if not page['properties'].get('允许发言', {}).get('checkbox', False):
+                    continue
+                
+                # 获取群名
+                group_name = page['properties'].get('群名', {}).get('title', [{}])[0].get('text', {}).get('content', '')
+                if not group_name:
                     continue
                     
-                name_array = page['properties'].get('群名', {}).get('title', [])
-                if not name_array:
-                    continue
-                    
-                group_name = name_array[0]['text']['content']
-                if wxid := wxid_map.get(group_name):
+                # 先尝试从缓存获取 wxid
+                wxid_texts = page['properties'].get('group_wxid', {}).get('rich_text', [])
+                wxid = wxid_texts[0]['text']['content'] if wxid_texts else None
+                
+                # 如果缓存中没有 wxid，尝试从微信获取
+                if not wxid and wxid_map:
+                    wxid = wxid_map.get(group_name)
+                    if wxid:
+                        # 更新本地缓存
+                        for group in cache_data['groups']:
+                            if group['id'] == page['id']:
+                                if 'group_wxid' not in group['properties']:
+                                    group['properties']['group_wxid'] = {'rich_text': []}
+                                group['properties']['group_wxid']['rich_text'] = [{
+                                    'text': {'content': wxid}
+                                }]
+                        
+                        # 保存更新后的缓存
+                        with open(self.local_data_path, 'w', encoding='utf-8') as f:
+                            json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                            
+                        logger.info(f"找到群 {group_name} 的 wxid: {wxid}，正在更新到本地缓存和 Notion")
+                        # 更新到 Notion
+                        self._update_group_wxid(page['id'], wxid)
+                
+                if wxid:
                     allowed_groups.append(wxid)
                     logger.debug(f"添加允许发言的群: {group_name} ({wxid})")
+                else:
+                    logger.warning(f"群 {group_name} 未找到对应的 wxid")
             
             logger.info(f"共找到 {len(allowed_groups)} 个允许发言的群组")
             return allowed_groups
