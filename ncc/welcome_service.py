@@ -108,3 +108,23 @@ class WelcomeService:
             receiver=group_id
         )
         return result == 0 
+
+    def _get_rich_text_value(self, prop: dict) -> str:
+        """从rich_text类型的属性中提取值"""
+        try:
+            rich_text = prop.get('rich_text', [])
+            if rich_text and len(rich_text) > 0:
+                return rich_text[0]['text']['content']
+        except Exception as e:
+            logger.error(f"提取rich_text值失败: {e}")
+        return ""
+
+    def _get_title_value(self, prop: dict) -> str:
+        """从title类型的属性中提取值"""
+        try:
+            title = prop.get('title', [])
+            if title and len(title) > 0:
+                return title[0]['text']['content']
+        except Exception as e:
+            logger.error(f"提取title值失败: {e}")
+        return ""
