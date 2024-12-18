@@ -24,7 +24,15 @@ logger.addHandler(console_handler)
 logger.propagate = False
 
 @dataclass
+class NotionCache:
+    """原始 Notion 数据的缓存结构"""
+    last_updated: str
+    lists_data: List[dict]  # 原始列表数据
+    groups_data: List[dict]  # 原始群组数据
+
+@dataclass
 class ForwardList:
+    """处理后的转发列表结构"""
     list_id: int
     list_name: str
     groups: List[Dict[str, str]]
@@ -41,6 +49,39 @@ class NotionManager:
         
         # 确保数据目录存在
         os.makedirs(os.path.dirname(self.local_data_path), exist_ok=True)
+
+    # 获取 Notion 原始数据，存储为notion_cache.json
+    def fetch_notion_data(self) -> bool:
+        """从 Notion 获取原始数据并缓存到本地"""
+        try:
+            logger.info("开始从 Notion 获取数据...")
+            
+            # 获取所有列表数据（不做过滤）
+            lists_response = self.notion.databases.query(
+                database_id=self.lists_db_id
+            )
+            
+            # 获取所有群组数据（不做过滤）
+            groups_response = self.notion.databases.query(
+                database_id=self.groups_db_id
+            )
+            
+            # 保存原始数据到本地
+            cache_data = {
+                "last_updated": datetime.now().isoformat(),
+                "lists": lists_response['results'],
+                "groups": groups_response['results']
+            }
+            
+            with open(self.local_data_path, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            
+            logger.info("成功缓存 Notion 数据到本地")
+            return True
+            
+        except Exception as e:
+            logger.error(f"获取 Notion 数据失败: {e}", exc_info=True)
+            return False
 
     def _get_all_group_wxids(self) -> Dict[str, str]:
         """获取所有群聊的 wxid 映射"""
@@ -71,32 +112,30 @@ class NotionManager:
     def get_all_lists_and_groups(self) -> List[ForwardList]:
         """获取所有转发列表及其群组"""
         try:
-            logger.info("开始从 Notion 获取列表信息...")
+            # 检查并加载缓存数据
+            if not os.path.exists(self.local_data_path):
+                logger.warning("本地缓存不存在，尝试从 Notion 获取数据...")
+                if not self.fetch_notion_data():
+                    return []
+            
+            # 读取缓存数据
+            with open(self.local_data_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
             lists = {}
             
-            # 1. 获取所有启用的转发列表
-            logger.info("正在查询转发列表...")
-            lists_response = self.notion.databases.query(
-                database_id=self.lists_db_id,
-                filter={
-                    "property": "是否转发",
-                    "checkbox": {
-                        "equals": True
-                    }
-                }
-            )
-            logger.info(f"获取到 {len(lists_response['results'])} 个转发列表")
+            # 从缓存中筛选启用的转发列表
+            enabled_lists = [
+                page for page in cache_data['lists']
+                if page['properties'].get('是否转发', {}).get('checkbox', False)
+            ]
+            logger.info(f"获取到 {len(enabled_lists)} 个启用的转发列表")
             
-            # 2. 获取所有允许发言的群组
-            groups_response = self.notion.databases.query(
-                database_id=self.groups_db_id,
-                filter={
-                    "property": "允许发言",
-                    "checkbox": {
-                        "equals": True
-                    }
-                }
-            )
+            # 从缓存中筛选允许发言的群组
+            enabled_groups = [
+                page for page in cache_data['groups']
+                if page['properties'].get('允许发言', {}).get('checkbox', False)
+            ]
 
             # 3. 构建群组 wxid 映射（如果有 wcf）
             group_wxids = {}
@@ -110,8 +149,8 @@ class NotionManager:
                     for room in chatrooms
                 }
 
-            # 4. 处理每个列表
-            for page in lists_response['results']:
+            # 处理每个启用的列表
+            for page in enabled_lists:
                 list_id = page['properties'].get('分组编号', {}).get('number')
                 if not list_id:
                     continue
@@ -127,13 +166,13 @@ class NotionManager:
                     groups=[]
                 )
 
-            # 5. 处理每个群组并关联到列表
-            for page in groups_response['results']:
+            # 处理每个允许发言的群组
+            for page in enabled_groups:
                 try:
-                    # 获取群名
                     name_array = page['properties'].get('群名', {}).get('title', [])
                     if not name_array:
                         continue
+                    
                     group_name = name_array[0]['text']['content']
                     
                     # 获取群的 wxid
@@ -143,18 +182,19 @@ class NotionManager:
                     if wxid:
                         self._update_group_wxid(page['id'], wxid)
                     
-                    # 获取关联的列表
+                    # 处理群组关联
                     relations = page['properties'].get('转发群聊分组', {}).get('relation', [])
                     
                     # 将群组添加到每个关联的列表中
                     for relation in relations:
-                        list_page = self.notion.pages.retrieve(relation['id'])
-                        list_id = list_page['properties']['分组编号']['number']
-                        if list_id in lists:
-                            lists[list_id].groups.append({
-                                'group_name': group_name,
-                                'wxid': wxid
-                            })
+                        for list_data in cache_data['lists']:
+                            if list_data['id'] == relation['id']:
+                                list_id = list_data['properties']['分组编号']['number']
+                                if list_id in lists:
+                                    lists[list_id].groups.append({
+                                        'group_name': group_name,
+                                        'wxid': wxid
+                                    })
                 except Exception as e:
                     logger.error(f"处理群组时出错: {e}")
                     continue
@@ -192,30 +232,35 @@ class NotionManager:
     def get_all_allowed_groups(self) -> List[str]:
         """获取所有允许机器人响应的群组wxid列表"""
         try:
-            # 查询允许发言的群组
-            response = self.notion.databases.query(
-                database_id=self.groups_db_id,
-                filter={
-                    "property": "允许发言",  # Notion中标记是否允许机器人响应的字段
-                    "checkbox": {
-                        "equals": True
-                    }
-                }
-            )
+            # 检查并加载缓存数据
+            if not os.path.exists(self.local_data_path):
+                logger.warning("本地缓存不存在，尝试从 Notion 获取数据...")
+                if not self.fetch_notion_data():
+                    return []
+            
+            # 读取缓存数据
+            with open(self.local_data_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
             
             # 获取群组wxid映射
             wxid_map = self._get_all_group_wxids()
             
-            # 收集允许发言的群wxid
+            # 从缓存中筛选允许发言的群组
             allowed_groups = []
-            for page in response['results']:
+            for page in cache_data['groups']:
+                if not page['properties'].get('允许发言', {}).get('checkbox', True):
+                    continue
+                    
                 name_array = page['properties'].get('群名', {}).get('title', [])
                 if not name_array:
                     continue
+                    
                 group_name = name_array[0]['text']['content']
                 if wxid := wxid_map.get(group_name):
                     allowed_groups.append(wxid)
+                    logger.debug(f"添加允许发言的群: {group_name} ({wxid})")
             
+            logger.info(f"共找到 {len(allowed_groups)} 个允许发言的群组")
             return allowed_groups
             
         except Exception as e:
@@ -225,8 +270,8 @@ class NotionManager:
     def get_groups_by_list_id(self, list_id: int) -> List[str]:
         """根据列表ID获取该列表下可转发到的群组wxid列表"""
         try:
-            lists = self.load_lists_from_local()
-            for lst in lists:
+            forward_lists = self.get_all_lists_and_groups()
+            for lst in forward_lists:
                 if lst.list_id == list_id:
                     return [
                         group['wxid'] 
@@ -240,161 +285,8 @@ class NotionManager:
 
 
 
-    def save_notion_data_to_local(self) -> bool:
-        """将列表信息保存到本地文件"""
-        try:
-            logger.info("开始获取并保存列表信息...")
-            lists = self.get_all_lists_and_groups()
-            if not lists:
-                logger.error("未获取到任何列表信息")
-                return False
-            
-            logger.info(f"成功获取 {len(lists)} 个列表")
-            
-            data = {
-                "last_updated": datetime.now().isoformat(),
-                "lists": [
-                    {
-                        "list_id": lst.list_id,
-                        "list_name": lst.list_name,
-                        "groups": lst.groups
-                    }
-                    for lst in lists
-                ]
-            }
-            
-            logger.info(f"准备保存到: {self.local_data_path}")
-            with open(self.local_data_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            
-            logger.info("成功保存列表信息到本地")
-            return True
-        except Exception as e:
-            logger.error(f"保存列表信息到本地失败: {e}", exc_info=True)
-            return False
 
-    def load_lists_from_local(self) -> List[ForwardList]:
-        """从本地文件加载列表信息"""
-        try:
-            if not os.path.exists(self.local_data_path):
-                logger.warning("本地缓存文件不存在")
-                return []
-                
-            with open(self.local_data_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-            lists = []
-            for lst_data in data['lists']:
-                lists.append(ForwardList(
-                    list_id=lst_data['list_id'],
-                    list_name=lst_data['list_name'],
-                    groups=lst_data['groups']
-                ))
-            
-            return lists
-        except Exception as e:
-            logger.error(f"从本地加载列表信息失败: {e}")
-            return []
 
-    def get_local_lists_info(self) -> str:
-        """获取本地保存的列表信息的可读形式"""
-        try:
-            if not os.path.exists(self.local_data_path):
-                return "未找到本地缓存，请先使用刷新列表功能"
-                
-            with open(self.local_data_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-            last_updated = datetime.fromisoformat(data['last_updated'])
-            info = f"最后更新时间：{last_updated.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            
-            for lst in data['lists']:
-                info += f"列表 {lst['list_id']}: {lst['list_name']}\n"
-                info += "包含群组：\n"
-                for group in lst['groups']:
-                    info += f"- {group['group_name']}\n"
-                info += "\n"
-                
-            return info
-        except Exception as e:
-            logger.error(f"获取本地列表信息失败: {e}")
-            return "获取本地列表信息失败"
 
-    def get_list_info_by_id(self, list_id: int) -> str:
-        """根据列表ID获取特定列表的信息"""
-        try:
-            lists = self.load_lists_from_local()
-            for lst in lists:
-                if lst.list_id == list_id:
-                    info = f"列表 {lst.list_id}: {lst.list_name}\n"
-                    info += "包含群组：\n"
-                    for group in lst.groups:
-                        info += f"- {group['group_name']}\n"
-                    return info
-            return f"未找到ID为 {list_id} 的列表"
-        except Exception as e:
-            logger.error(f"获取列表信息失败: {e}")
-            return "获取列表信息失败"
 
-    def load_groups_from_local(self) -> List[dict]:
-        """从本地加载群组数据并解析欢迎配置"""
-        try:
-            groups_file = self.local_data_path
-            if not os.path.exists(groups_file):
-                logger.error("群组数据文件不存在")
-                return []
-                
-            with open(groups_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-            # 解析群组数据，同时提取欢迎配置
-            groups = []
-            self.welcome_groups.clear()  # 清空现有缓存
-            
-            for item in data.get('results', []):
-                properties = item.get('properties', {})
-                
-                # 提取基本信息
-                group_wxid = self._get_rich_text_value(properties.get('group_wxid', {}))
-                group_name = self._get_title_value(properties.get('群名', {}))
-                
-                # 提取欢迎配置
-                welcome_enabled = properties.get('迎新推送开关', {}).get('checkbox', False)
-                welcome_url = properties.get('迎新推送链接', {}).get('url')
-                
-                # 如果启用了欢迎功能且有链接，添加到欢迎配置
-                if welcome_enabled and welcome_url and group_wxid:
-                    self.welcome_groups[group_wxid] = welcome_url
-                    logger.info(f"加载群 {group_name}({group_wxid}) 的欢迎配置")
-                
-                # 继续处理其他群组数据...
-                groups.append({
-                    'wxid': group_wxid,
-                    'name': group_name,
-                    # 其他现有字段...
-                })
-                
-            return groups
-            
-        except Exception as e:
-            logger.error(f"加载群组数据失败: {e}")
-            return []
-
-    def get_welcome_config(self, group_wxid: str) -> Optional[str]:
-        """获取群的欢迎配置"""
-        return self.welcome_groups.get(group_wxid)
-
-    def _get_rich_text_value(self, prop: dict) -> str:
-        """提取富文本属性值"""
-        try:
-            return prop.get('rich_text', [])[0].get('plain_text', '')
-        except (IndexError, KeyError):
-            return ''
-
-    def _get_title_value(self, prop: dict) -> str:
-        """提取标题属性值"""
-        try:
-            return prop.get('title', [])[0].get('plain_text', '')
-        except (IndexError, KeyError):
-            return ''
         
