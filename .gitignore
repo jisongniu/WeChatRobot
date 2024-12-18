@@ -12,5 +12,5 @@ logs/
 
 config.yaml
 
-# Debug files
-debug/
+# test files
+test/
