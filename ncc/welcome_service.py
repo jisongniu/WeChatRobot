@@ -4,6 +4,10 @@ from typing import Optional, List, Dict
 import os
 import json
 from wcferry import Wcf, WxMsg
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import random
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +19,7 @@ class WelcomeService:
             r"(.+)通过扫描二维码加入群聊",
         ]
         self.welcome_configs = {} 
+        self.executor = ThreadPoolExecutor()  # 创建线程池
 
     def load_groups_from_local(self) -> List[dict]:
         """从本地加载群组数据并解析欢迎配置"""
@@ -57,7 +62,7 @@ class WelcomeService:
             # 只有当 welcome_enabled 为 True 且有 welcome_url 时才会添加到配置中        
             if welcome_enabled and welcome_url and group_wxid:
                 self.welcome_configs[group_wxid] = welcome_url
-                logger.info(f"加载群 {group_name}({group_wxid}) 的欢迎配置")
+                logger.debug(f"加载群 {group_name}({group_wxid}) 的欢迎配置")
             
             return {
                 'wxid': group_wxid,
@@ -82,32 +87,45 @@ class WelcomeService:
         return False, ""
 
     def send_welcome(self, group_id: str, member_name: str) -> bool:
-        """发送欢迎消息"""
+        """发送非阻塞地发送欢迎消息"""
         # 检查welcome_enabled（迎新推送开关）是否打开，url是否为空
         welcome_url = self.welcome_configs.get(group_id)
 
-        #如果未配置欢迎url，则不发送欢迎消息
+        # 如果未配置欢迎url，则不发送欢迎消息
         if not welcome_url:
             return False
-        
+
+        # 在新线程中执行延迟发送
+        self.executor.submit(self._delayed_send_welcome, group_id, welcome_url, member_name)
+        return True
+
+    def _delayed_send_welcome(self, group_id: str, welcome_url: str, member_name: str) -> None:
+        """在单独的线程中处理延迟发送"""
         try:
-            return self._send_welcome_message(group_id, welcome_url, member_name)
+            # 随机延迟30-60秒
+            delay = random.randint(30, 60)
+            time.sleep(delay)
+            self._send_welcome_message(group_id, welcome_url, member_name)
         except Exception as e:
             logger.error(f"发送欢迎消息失败: {e}")
-            return False 
 
     def _send_welcome_message(self, group_id: str, welcome_url: str, member_name: str) -> bool:
         """发送具体的欢迎消息"""
-        result = self.wcf.send_rich_text(
-            name="NCC社区",
-            account="gh_0b00895e7394",
-            title=f"{member_name}，欢迎加入NCC社区",
-            digest=f"Hi {member_name}，点开看看",
-            url=welcome_url,
-            thumburl="",
-            receiver=group_id
-        )
-        return result == 0 
+        try:
+            result = self.wcf.send_rich_text(
+                receiver=group_id,
+                name="NCC社区",
+                account="gh_0b00895e7394",
+                title=f"{member_name}，欢迎加入NCC社区",
+                digest=f"Hi {member_name}，点开看看",
+                url=welcome_url,
+                thumburl=""  # 空字符串表示不使用缩略图
+            )
+            logger.info(f"发送欢迎消息给 {member_name}: {'成功' if result == 0 else '失败'}")
+            return result == 0
+        except Exception as e:
+            logger.error(f"发送欢迎消息失败: {e}")
+            return False
 
     def _get_rich_text_value(self, prop: dict) -> str:
         """从rich_text类型的属性中提取值"""
