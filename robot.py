@@ -24,6 +24,7 @@ from constants import ChatType, MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY, FRIEND_WELCO
 from job_mgmt import Job
 from ncc.notion_manager import NotionManager
 from ncc.ncc_manager import NCCManager, ForwardState
+from ncc.welcome_service import WelcomeService  # 添加导入
 import random  
 import os
 
@@ -101,6 +102,12 @@ class Robot(Job):
             config=self.config,
             wcf=self.wcf
         )
+        
+        # 添加 WelcomeService 初始化
+        self.welcome_service = WelcomeService(wcf=self.wcf)
+        # 加载群组配置
+        self.welcome_service.load_groups_from_local()
+        
         self.forward_admin = config.FORWARD_ADMINS
 
     @staticmethod
@@ -217,15 +224,23 @@ class Robot(Job):
         #     self.handle_friend_request(msg)
         #     return
 
-        elif msg.type == 10000:  # 系统信息
-            self.sayHiToNewFriend(msg)
-            return
+        elif msg.type == 10000:  # 系统消息
+            if msg.from_group():  # 是群消息
+                is_join, member_name = self.welcome_service.is_join_message(msg)
+                if is_join:
+                    self.welcome_service.send_welcome(msg.roomid, member_name)
+                    return
+            else:  # 不是群消息，可能是好友申请通过
+                self.sayHiToNewFriend(msg)
+                return
 
         # 处理自己发送的消息
         if msg.from_self():
             if msg.type == 0x01 and msg.content == "*更新":  # 只处理文本消息的更新命令
                 self.config.reload()
                 self.allowed_groups = self.notion_manager.get_all_allowed_groups()
+                # 添加欢迎配置更新
+                self.welcome_service.load_groups_from_local()
                 self.LOG.info("已更新")
             return
 

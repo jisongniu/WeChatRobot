@@ -1,0 +1,204 @@
+{
+  "object": "list",
+  "results": [
+    {
+      "object": "page",
+      "id": "1574e93f-5682-80c2-9775-ccbacef8a0c3",
+      "created_time": "2024-12-09T03:00:00.000Z",
+      "last_edited_time": "2024-12-11T05:22:00.000Z",
+      "created_by": {
+        "object": "user",
+        "id": "7c5b2bba-6f77-4039-9946-565947982e1f"
+      },
+      "last_edited_by": {
+        "object": "user",
+        "id": "aad639bd-c6aa-41c3-9e1f-0879243c5066"
+      },
+      "cover": null,
+      "icon": null,
+      "parent": {
+        "type": "database_id",
+        "database_id": "1564e93f-5682-8007-b10c-d8a5d2fa1f50"
+      },
+      "archived": false,
+      "in_trash": false,
+      "properties": {
+        "迎新推送开关": {
+          "id": "UABl",
+          "type": "checkbox",
+          "checkbox": false
+        },
+        "转发群聊分组": {
+          "id": "cytX",
+          "type": "relation",
+          "relation": [
+            {
+              "id": "1564e93f-5682-80d1-9343-da26ccf2252e"
+            }
+          ],
+          "has_more": false
+        },
+        "允许发言": {
+          "id": "kxl%5E",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "group_wxid": {
+          "id": "pk%3C%5B",
+          "type": "rich_text",
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": "45786515168@chatroom",
+                "link": null
+              },
+              "annotations": {
+                "bold": false,
+                "italic": false,
+                "strikethrough": false,
+                "underline": false,
+                "code": false,
+                "color": "default"
+              },
+              "plain_text": "45786515168@chatroom",
+              "href": null
+            }
+          ]
+        },
+        "迎新推送链接": {
+          "id": "zLvZ",
+          "type": "url",
+          "url": null
+        },
+        "群名": {
+          "id": "title",
+          "type": "title",
+          "title": [
+            {
+              "type": "text",
+              "text": {
+                "content": "明天会更好",
+                "link": null
+              },
+              "annotations": {
+                "bold": false,
+                "italic": false,
+                "strikethrough": false,
+                "underline": false,
+                "code": false,
+                "color": "default"
+              },
+              "plain_text": "明天会更好",
+              "href": null
+            }
+          ]
+        }
+      },
+      "url": "https://www.notion.so/1574e93f568280c29775ccbacef8a0c3",
+      "public_url": null
+    },
+    {
+      "object": "page",
+      "id": "1564e93f-5682-8095-9893-e81191cae39d",
+      "created_time": "2024-12-08T03:20:00.000Z",
+      "last_edited_time": "2024-12-18T09:13:00.000Z",
+      "created_by": {
+        "object": "user",
+        "id": "7c5b2bba-6f77-4039-9946-565947982e1f"
+      },
+      "last_edited_by": {
+        "object": "user",
+        "id": "7c5b2bba-6f77-4039-9946-565947982e1f"
+      },
+      "cover": null,
+      "icon": null,
+      "parent": {
+        "type": "database_id",
+        "database_id": "1564e93f-5682-8007-b10c-d8a5d2fa1f50"
+      },
+      "archived": false,
+      "in_trash": false,
+      "properties": {
+        "迎新推送开关": {
+          "id": "UABl",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "转发群聊分组": {
+          "id": "cytX",
+          "type": "relation",
+          "relation": [
+            {
+              "id": "1564e93f-5682-80d1-9343-da26ccf2252e"
+            }
+          ],
+          "has_more": false
+        },
+        "允许发言": {
+          "id": "kxl%5E",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "group_wxid": {
+          "id": "pk%3C%5B",
+          "type": "rich_text",
+          "rich_text": [
+            {
+              "type": "text",
+              "text": {
+                "content": "50590264038@chatroom",
+                "link": null
+              },
+              "annotations": {
+                "bold": false,
+                "italic": false,
+                "strikethrough": false,
+                "underline": false,
+                "code": false,
+                "color": "default"
+              },
+              "plain_text": "50590264038@chatroom",
+              "href": null
+            }
+          ]
+        },
+        "迎新推送链接": {
+          "id": "zLvZ",
+          "type": "url",
+          "url": "https://mp.weixin.qq.com/s/QAM-70Nn4TP8mgsoyyK32g"
+        },
+        "群名": {
+          "id": "title",
+          "type": "title",
+          "title": [
+            {
+              "type": "text",
+              "text": {
+                "content": "爱和和平",
+                "link": null
+              },
+              "annotations": {
+                "bold": false,
+                "italic": false,
+                "strikethrough": false,
+                "underline": false,
+                "code": false,
+                "color": "default"
+              },
+              "plain_text": "爱和和平",
+              "href": null
+            }
+          ]
+        }
+      },
+      "url": "https://www.notion.so/1564e93f568280959893e81191cae39d",
+      "public_url": null
+    }
+  ],
+  "next_cursor": null,
+  "has_more": false,
+  "type": "page_or_database",
+  "page_or_database": {},
+  "request_id": "c782c5dd-aa52-4e0e-97ff-8eb1512b26e7"
+}

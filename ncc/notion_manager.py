@@ -37,6 +37,7 @@ class NotionManager:
         self.wcf = wcf
         self._cache = {'wxid_map': None}
         self.local_data_path = "data/notion_cache.json"
+        self.welcome_groups = {}  # {group_wxid: welcome_url}
         
         # 确保数据目录存在
         os.makedirs(os.path.dirname(self.local_data_path), exist_ok=True)
@@ -67,7 +68,7 @@ class NotionManager:
             logger.warning(f"未找到群 {group_name} 的wxid")
         return wxid
 
-    def get_all_lists(self) -> List[ForwardList]:
+    def get_all_lists_and_groups(self) -> List[ForwardList]:
         """获取所有转发列表及其群组"""
         try:
             logger.info("开始从 Notion 获取列表信息...")
@@ -237,17 +238,13 @@ class NotionManager:
             logger.error(f"获取转发列表的群组失败: {e}")
             return []
 
-    def refresh_lists(self) -> None:
-        """刷新列表缓存"""
-        self._cache['wxid_map'] = None
-        logger.info("已刷新列表")
 
 
-    def save_lists_to_local(self) -> bool:
+    def save_notion_data_to_local(self) -> bool:
         """将列表信息保存到本地文件"""
         try:
             logger.info("开始获取并保存列表信息...")
-            lists = self.get_all_lists()
+            lists = self.get_all_lists_and_groups()
             if not lists:
                 logger.error("未获取到任何列表信息")
                 return False
@@ -338,4 +335,66 @@ class NotionManager:
         except Exception as e:
             logger.error(f"获取列表信息失败: {e}")
             return "获取列表信息失败"
+
+    def load_groups_from_local(self) -> List[dict]:
+        """从本地加载群组数据并解析欢迎配置"""
+        try:
+            groups_file = self.local_data_path
+            if not os.path.exists(groups_file):
+                logger.error("群组数据文件不存在")
+                return []
+                
+            with open(groups_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+            # 解析群组数据，同时提取欢迎配置
+            groups = []
+            self.welcome_groups.clear()  # 清空现有缓存
+            
+            for item in data.get('results', []):
+                properties = item.get('properties', {})
+                
+                # 提取基本信息
+                group_wxid = self._get_rich_text_value(properties.get('group_wxid', {}))
+                group_name = self._get_title_value(properties.get('群名', {}))
+                
+                # 提取欢迎配置
+                welcome_enabled = properties.get('迎新推送开关', {}).get('checkbox', False)
+                welcome_url = properties.get('迎新推送链接', {}).get('url')
+                
+                # 如果启用了欢迎功能且有链接，添加到欢迎配置
+                if welcome_enabled and welcome_url and group_wxid:
+                    self.welcome_groups[group_wxid] = welcome_url
+                    logger.info(f"加载群 {group_name}({group_wxid}) 的欢迎配置")
+                
+                # 继续处理其他群组数据...
+                groups.append({
+                    'wxid': group_wxid,
+                    'name': group_name,
+                    # 其他现有字段...
+                })
+                
+            return groups
+            
+        except Exception as e:
+            logger.error(f"加载群组数据失败: {e}")
+            return []
+
+    def get_welcome_config(self, group_wxid: str) -> Optional[str]:
+        """获取群的欢迎配置"""
+        return self.welcome_groups.get(group_wxid)
+
+    def _get_rich_text_value(self, prop: dict) -> str:
+        """提取富文本属性值"""
+        try:
+            return prop.get('rich_text', [])[0].get('plain_text', '')
+        except (IndexError, KeyError):
+            return ''
+
+    def _get_title_value(self, prop: dict) -> str:
+        """提取标题属性值"""
+        try:
+            return prop.get('title', [])[0].get('plain_text', '')
+        except (IndexError, KeyError):
+            return ''
         

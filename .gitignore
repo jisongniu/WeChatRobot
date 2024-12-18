@@ -1,6 +1,7 @@
 .*
 !.gitignore
 !.github/
+.cursorrules
 
 *pyc
 __pycache__
