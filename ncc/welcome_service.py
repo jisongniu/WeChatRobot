@@ -28,7 +28,7 @@ class WelcomeService:
                 data = json.load(f)
                 
             self.welcome_configs.clear()  # 清空现有缓存
-            return self._parse_groups_data(data.get('results', []))
+            return self._parse_groups_data(data.get('groups', []))
                 
         except Exception as e:
             logger.error(f"加载群组数据失败: {e}")
@@ -46,20 +46,27 @@ class WelcomeService:
 
     def _extract_group_info(self, properties: dict) -> Optional[dict]:
         """提取群组信息"""
-        group_wxid = self._get_rich_text_value(properties.get('group_wxid', {}))
-        group_name = self._get_title_value(properties.get('群名', {}))
-        
-        welcome_enabled = properties.get('迎新推送开关', {}).get('checkbox', False)
-        welcome_url = properties.get('迎新推送链接', {}).get('url')
-        
-        if welcome_enabled and welcome_url and group_wxid:
-            self.welcome_configs[group_wxid] = welcome_url
-            logger.info(f"加载群 {group_name}({group_wxid}) 的欢迎配置")
-        
-        return {
-            'wxid': group_wxid,
-            'name': group_name,
-        } if group_wxid else None
+        try:
+            group_wxid = self._get_rich_text_value(properties.get('group_wxid', {}))
+            group_name = self._get_title_value(properties.get('群名', {}))
+
+            # 检查迎新推送开关
+            welcome_enabled = properties.get('迎新推送开关', {}).get('checkbox', False)
+            welcome_url = properties.get('迎新推送链接', {}).get('url')
+
+            # 只有当 welcome_enabled 为 True 且有 welcome_url 时才会添加到配置中        
+            if welcome_enabled and welcome_url and group_wxid:
+                self.welcome_configs[group_wxid] = welcome_url
+                logger.info(f"加载群 {group_name}({group_wxid}) 的欢迎配置")
+            
+            return {
+                'wxid': group_wxid,
+                'name': group_name,
+            } if group_wxid else None
+            
+        except Exception as e:
+            logger.error(f"解析群组信息失败: {e}")
+            return None
 
     def is_join_message(self, msg: WxMsg) -> tuple[bool, str]:
         """
@@ -78,8 +85,9 @@ class WelcomeService:
         """发送欢迎消息"""
         # 检查welcome_enabled（迎新推送开关）是否打开，url是否为空
         welcome_url = self.welcome_configs.get(group_id)
+
+        #如果未配置欢迎url，则不发送欢迎消息
         if not welcome_url:
-            logger.warning(f"群 {group_id} 未配置欢迎消息")
             return False
         
         try:

@@ -244,9 +244,11 @@ class Robot(Job):
                 self.LOG.info("已更新")
             return
 
-        # 处理 NCC 命令（仅限私聊）
-        if msg.content.lower() == "ncc" or self.ncc_manager.forward_state != ForwardState.IDLE:
-            if self.ncc_manager.handle_message(msg):
+        # 处理 NCC 命令
+        if not msg.from_group():
+            operator_state = self.ncc_manager.operator_states.get(msg.sender)
+            if msg.content.lower() == "ncc" or (operator_state and operator_state.state != ForwardState.IDLE):
+                if self.ncc_manager.handle_message(msg):
                     return
 
     def onMsg(self, msg: WxMsg) -> int:
