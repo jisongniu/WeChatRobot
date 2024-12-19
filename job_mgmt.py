@@ -3,7 +3,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, Protocol
 import schedule
 import re
 import json
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import croniter
 import logging
 import threading
@@ -147,20 +147,22 @@ class JobManager:
         格式: $time 周期 时间 事件 [group[群名]] [@all]
         示例: 
         - $time 每天 08:00 打卡提醒 group[AAA] @all
-        - $time 每天 10:30 早会提醒 group[技术部] @all
+        - $time 今天 20:23 提醒我时间
+        - $time 明天 10:30 开会提醒
+        - $time 工作日 09:00 晨会
         """
         if not command.startswith("$time "):
             return None
-            
+        
         # 检查是否有@all
         at_all = "@all" in command
         command = command.replace("@all", "").strip()
-            
+        
         pattern = r"\$time\s+([^\s]+)\s+([^\s]+)\s+(.+?)(?:\s+group\[([^\]]+)\])?$"
         match = re.match(pattern, command)
         if not match:
             return None
-            
+        
         schedule_type, time_str, message, group = match.groups()
         
         # 标准化周期类型
@@ -173,13 +175,30 @@ class JobManager:
         elif schedule_type.startswith("cron["):
             schedule_type = "cron"
             time_str = time_str.strip("[]")
+        elif schedule_type in ["今天", "today"]:
+            # 处理今天的情况
+            schedule_type = datetime.now().strftime("%Y-%m-%d")
+        elif schedule_type in ["明天", "tomorrow"]:
+            # 处理明天的情况
+            schedule_type = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         else:
             try:
+                # 尝试解析具体日期
                 datetime.strptime(schedule_type, "%Y-%m-%d")
                 schedule_type = "date"
             except:
                 return None
                 
+        # 标准化时间格式
+        try:
+            # 处理没有秒数的情况
+            if len(time_str.split(":")) == 2:
+                time_str = f"{time_str}:00"
+            # 验证时间格式
+            datetime.strptime(time_str, "%H:%M:%S")
+        except:
+            return None
+            
         return {
             "schedule_type": schedule_type,
             "time_str": time_str,
