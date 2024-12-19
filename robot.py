@@ -49,7 +49,7 @@ class Robot:
         self.wxid = self.wcf.get_self_wxid()
         self.allContacts = self.getAllContacts()
         self.processed_msgs = set()  # 添加消息去重集合
-        self.job_mgr = JobManager(wcf)
+        self.job_mgr = JobManager(wcf, self)
         # 选择模型
         if ChatType.is_in_chat_types(chat_type):
             if chat_type == ChatType.TIGER_BOT.value and TigerBot.value_check(self.config.TIGERBOT):
@@ -292,12 +292,15 @@ class Robot:
             while wcf.is_receiving_msg():
                 try:
                     msg = wcf.get_msg()
-                    self.LOG.info(msg)
-                    self.processMsg(msg)
+                    if msg:  # 确保消息不为空
+                        self.LOG.info(msg)
+                        self.processMsg(msg)
                 except Empty:
-                    continue  # Empty message
+                    time.sleep(0.1)  # 短暂休眠避免CPU占用过高
+                    continue
                 except Exception as e:
-                    self.LOG.error(f"Receiving message error: {e}")
+                    self.LOG.error(f"处理消息异常: {e}")
+                    time.sleep(1)  # 发生异常时等待较长时间
 
         self.wcf.enable_receiving_msg()
         Thread(target=innerProcessMsg, name="GetMessage", args=(self.wcf,), daemon=True).start()
@@ -354,20 +357,48 @@ class Robot:
                     time.sleep(1)
                 except Exception as e:
                     self.LOG.error(f"检查定时任务异常: {e}")
-                    time.sleep(5)  # 发生异常时等待更长时间
+                    time.sleep(5)
 
-        # 启动定时任务检查线程
-        Thread(target=check_jobs, name="JobChecker", daemon=True).start()
-        
-        # 主循环保持机器人运行
-        while True:
+        def check_wcf_alive():
+            """检查wcf连接状态"""
+            while True:
+                try:
+                    if not self.wcf.is_receiving_msg():
+                        self.LOG.warning("消息接收已断开，尝试重新连接...")
+                        self.wcf.enable_receiving_msg()
+                    time.sleep(5)
+                except Exception as e:
+                    self.LOG.error(f"检查wcf状态异常: {e}")
+                    time.sleep(5)
+
+        try:
+            # 启动定时任务检查线程
+            job_thread = Thread(target=check_jobs, name="JobChecker", daemon=True)
+            job_thread.start()
+            
+            # 启动wcf状态检查线程
+            wcf_thread = Thread(target=check_wcf_alive, name="WcfChecker", daemon=True)
+            wcf_thread.start()
+            
+            # 主循环
+            while True:
+                try:
+                    time.sleep(1)
+                except KeyboardInterrupt:
+                    self.LOG.info("收到退出信号，正在退出...")
+                    break
+                except Exception as e:
+                    self.LOG.error(f"主循环异常: {e}")
+                    time.sleep(5)
+                
+        except Exception as e:
+            self.LOG.error(f"keepRunningAndBlockProcess异常: {e}")
+        finally:
+            self.LOG.info("正在清理资源...")
             try:
-                time.sleep(1)
-            except KeyboardInterrupt:
-                self.LOG.info("收到退出信号，正在退出...")
-                break
-            except Exception as e:
-                self.LOG.error(f"主循环异常: {e}")
+                self.wcf.cleanup()
+            except:
+                pass
 
     def handle_friend_request(self, msg):
         """处理好友请求"""
