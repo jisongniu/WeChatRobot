@@ -35,13 +35,20 @@ class WCFMessageSender(MessageSender):
             Optional[str]: 群ID，未找到返回None
         """
         try:
+            logging.debug(f"尝试查找群[{group_name}]的ID")
             # 首先检查群是否在允许列表中
             if not self.robot or group_name not in self.robot.allowed_groups:
-                logging.error(f"群[{group_name}]不在允许列表中或机器人没有发言权限")
+                logging.error(f"群[{group_name}]不在允许列表中")
+                if not self.robot:
+                    logging.error("robot实例未初始化")
+                else:
+                    logging.debug(f"当前允许的群列表: {list(self.robot.allowed_groups.keys())}")
                 return None
             
             # 从允许列表中获取群ID
-            return self.robot.allowed_groups.get(group_name)
+            group_id = self.robot.allowed_groups.get(group_name)
+            logging.info(f"找到群[{group_name}]的ID: {group_id}")
+            return group_id
             
         except Exception as e:
             logging.error(f"查找群ID失败: {e}")
