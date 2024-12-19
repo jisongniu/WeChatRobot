@@ -31,11 +31,11 @@ class WCFMessageSender(MessageSender):
             if target:
                 if at_all:
                     # 使用wcf的@所有人功能
-                    self.wcf.send_group_message(target, message, "notify@all")
+                    self.wcf.send_text(message, target, "notify@all")
                 else:
-                    self.wcf.send_group_message(target, message)
+                    self.wcf.send_text(message, target)
             else:
-                self.wcf.send_message(message)
+                self.wcf.send_text(message, "filehelper")  # 默认发送到文件传输助手
             return True
         except Exception as e:
             logging.error(f"发送消息失败: {e}")
