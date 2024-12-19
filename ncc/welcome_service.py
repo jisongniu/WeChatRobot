@@ -86,7 +86,9 @@ class WelcomeService:
         
         for pattern in self.welcome_patterns:
             if match := re.search(pattern, msg.content):
-                return True, match.group(1)
+                # 去掉昵称中的引号
+                member_name = match.group(1).replace('"', '')
+                return True, member_name
         return False, ""
 
     def send_welcome(self, group_id: str, member_name: str) -> bool:
