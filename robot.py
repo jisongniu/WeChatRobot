@@ -189,8 +189,6 @@ class Robot(Job):
             # 移除前缀
             msg.content = msg.content.replace("问：", "").replace("【问：】", "")
             return self.toAIchat(msg)
-        elif "肥肉" in msg.content:
-            rsp = "哎呀？我听到有人在聊肥肉！我来了！什么事！"
         else:
             rsp = None  # 不回复
             
@@ -216,7 +214,18 @@ class Robot(Job):
             if msg.from_group() and msg.roomid not in self.allowed_groups:
                 return  # 如果是群消息且群不在允许列表中，直接返回
             self.toAt(msg)  # 否则处理消息
-
+            
+        # 检查普通消息中的肥肉关键词
+        if "肥肉" in msg.content and msg.from_group() and msg.roomid in self.allowed_groups:
+            def delayed_msg():
+                # 先拍一拍
+                self.wcf.send_pat_msg(msg.roomid, msg.sender)
+                # 延迟后发送消息
+                time.sleep(random.uniform(0.5, 1))  # 随机延迟0.5-1秒
+                rsp = "哎呀？我听到有人在聊肥肉！我来了～"
+                self.sendTextMsg(rsp, msg.roomid)
+                
+            Thread(target=delayed_msg, name="PatAndMsg").start()
 
         # 非群聊信息，按消息类型进行处理
 
@@ -438,7 +447,7 @@ class Robot(Job):
         """处理新好友入群后的欢迎消息"""
         nickName = re.findall(r"你已添加了(.*)，现在可以开始聊天了。", msg.content)
         if nickName:
-            # 添加了好友，更新好友列表
+            # 添加了好友更新好友列表
             self.allContacts[msg.sender] = nickName[0]
             self.sendTextMsg(FRIEND_WELCOME_MSG, msg.sender)  
 
