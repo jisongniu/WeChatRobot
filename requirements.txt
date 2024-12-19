@@ -16,3 +16,5 @@ ipykernel
 google-generativeai
 zhipuai
 notion-client
+schedule==1.2.1
+croniter==2.0.1

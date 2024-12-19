@@ -210,7 +210,7 @@ class Robot(Job):
         self.sendTextMsg(content, receivers, msg.sender)
         """
         # 检查普通消息中的肥肉关键词（不是@的情况）
-        if msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01:
+        if msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01 and not msg.from_self():
             # 移除所有@部分的内容后再检查是否包含"肥肉"
             cleaned_content = re.sub(r"@.*?[\u2005|\s]", "", msg.content)
             if "肥肉" in cleaned_content and not msg.is_at(self.wxid):

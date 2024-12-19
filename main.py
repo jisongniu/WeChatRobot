@@ -9,6 +9,7 @@ from configuration import Config
 from constants import ChatType
 from robot import Robot, __version__
 from wcferry import Wcf
+from job_mgmt import JobManager
 
 
 def weather_report(robot: Robot) -> None:
@@ -26,10 +27,10 @@ def weather_report(robot: Robot) -> None:
         # robot.sendTextMsg(report, r, "notify@all")   # 发送消息并@所有人
 
 
-def main(chat_type: int):
-   
-    config = Config()
-    wcf = Wcf(debug=True)
+class Main:
+    def __init__(self):
+        config = Config()
+        wcf = Wcf(debug=True)
 
     def handler(sig, frame):
         wcf.cleanup()  # 退出前清理环境
@@ -47,15 +48,8 @@ def main(chat_type: int):
     # robot.enableRecvMsg()     # 可能会丢消息？
     robot.enableReceivingMsg()  # 加队列
 
-    # 每天 7 点发送天气预报
-    robot.onEveryTime("07:00", weather_report, robot=robot)
-
-    # 每天 7:30 发送新闻
-    robot.onEveryTime("07:30", robot.newsReport)
-
-    # 每天 16:30 提醒发日报周报月报
-    robot.onEveryTime("16:30", ReportReminder.remind, robot=robot)
-
+    # 在Robot类的__init__中添加:
+    self.job_mgr = JobManager(wcf)
 
     # 让机器人一直跑
     robot.keepRunningAndBlockProcess()
