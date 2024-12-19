@@ -136,7 +136,7 @@ class NCCManager:
                     return True
                 
                 operator_state.state = ForwardState.WAITING_CHOICE
-                lists = self.notion_manager.load_lists_from_local()
+                lists = self.notion_manager.get_all_lists_and_groups()
                 if not lists:
                     self.sendTextMsg("未找到可用的转发列表，请先使用【刷新列表】更新数据", msg.sender)
                     self._reset_operator_state(msg.sender)
@@ -153,7 +153,7 @@ class NCCManager:
             try:
                 # 只有图片消息需要特殊处理（提前下载）
                 if msg.type == 3:
-                    self.sendTextMsg("检测到图片消息，原图下载有点慢，等会儿", msg.sender)
+                    self.sendTextMsg("检测到图片消息，原图上传有点慢，等会儿，好了叫你", msg.sender)
                     img_path = self.wcf.download_image(msg.id, msg.extra, self.images_dir, timeout=120)
                     if not img_path or not os.path.exists(img_path):
                         self.sendTextMsg("图片下载失败，请检查图片是否正常", msg.sender)
