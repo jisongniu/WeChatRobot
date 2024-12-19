@@ -12,7 +12,7 @@ from wcferry import Wcf
 
 class MessageSender(Protocol):
     """消息发送器接口"""
-    def send_message(self, message: str, target: Optional[str] = None, at_all: bool = False) -> bool:
+    def send_message(self, message: str, target: Optional[str] = None, at_all: bool = False, sender: Optional[str] = None) -> bool:
         """发送消息到指定目标
         Args:
             message: 消息内容
@@ -47,7 +47,7 @@ class WCFMessageSender(MessageSender):
             logging.error(f"查找群ID失败: {e}")
             return None
     
-    def send_message(self, message: str, target: Optional[str] = None, at_all: bool = False) -> bool:
+    def send_message(self, message: str, target: Optional[str] = None, at_all: bool = False, sender: Optional[str] = None) -> bool:
         try:
             if target:
                 # 如果target是群名而不是群ID，尝试查找群ID
@@ -63,7 +63,7 @@ class WCFMessageSender(MessageSender):
                             "3. 机器人没有在该群的发言权限\n"
                             "请检查群名称或联系管理员添加权限"
                         )
-                        self.wcf.send_text(error_msg, receiver)
+                        self.wcf.send_text(error_msg, sender)
                         return False
                     target = group_id
                 
@@ -73,8 +73,8 @@ class WCFMessageSender(MessageSender):
                 else:
                     self.wcf.send_text(message, target)
             else:
-                # 使用task中保存的sender作为默认接收者
-                receiver = target or self.task.sender
+                # 使用传入的sender作为默认接收者
+                receiver = target or sender
                 self.wcf.send_text(message, receiver)
             return True
         except Exception as e:
@@ -155,7 +155,32 @@ class JobManager:
                 saved_tasks = json.load(f)
                 for task_data in saved_tasks:
                     task = TimeTask(**task_data)
-                    self._schedule_task(task)
+                    # 根据任务类型设置定时
+                    if task.schedule_type == "daily":
+                        job = schedule.every().day.at(task.time_str).do(
+                            self._execute_task, task
+                        )
+                    elif task.schedule_type == "weekly":
+                        # 解析周几
+                        weekday = self._parse_weekday(task.schedule_type)
+                        job = schedule.every().week.days[weekday].at(task.time_str).do(
+                            self._execute_task, task
+                        )
+                    elif task.schedule_type == "workday":
+                        job = schedule.every().day.at(task.time_str).do(
+                            self._execute_task_if_workday, task
+                        )
+                    elif task.schedule_type == "cron":
+                        job = self._schedule_cron(task)
+                    else:  # date
+                        date = datetime.strptime(task.schedule_type, "%Y-%m-%d")
+                        job = schedule.every().day.at(task.time_str).do(
+                            self._execute_task_on_date, task, date
+                        )
+                    
+                    task.job = job
+                    self.tasks[task.task_id] = task
+                    
         except FileNotFoundError:
             pass
         except Exception as e:
@@ -331,9 +356,9 @@ class JobManager:
             # 发送普通消息
             if task.at_all and task.target:
                 # 如果需要@所有人且是群消息
-                self.message_sender.send_message(task.message, task.target, at_all=True)
+                self.message_sender.send_message(task.message, task.target, at_all=True, sender=task.sender)
             else:
-                self.message_sender.send_message(task.message, task.target)
+                self.message_sender.send_message(task.message, task.target, sender=task.sender)
 
     def _execute_task_if_workday(self, task: TimeTask) -> None:
         """仅在工作日执行任务"""
