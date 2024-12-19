@@ -202,7 +202,7 @@ class Robot(Job):
     
 
     def processMsg(self, msg: WxMsg) -> None:
-        """当接收到消息的时候，会调用本方法。如果不实现本方法，则打印原始消息。
+        """当接收到消息���时候，会调用本方法。如果不实现本方法，则打印原始消息。
         此处可进行自定义发送的内容,如通过 msg.content 关键字自动获取当前天气信息，并发送到对应的群组@发送者
         群号：msg.roomid  微信ID：msg.sender  消息内容：msg.content
         content = "xx天气信息为："
@@ -216,7 +216,7 @@ class Robot(Job):
             self.toAt(msg)  # 否则处理消息
             
         # 检查普通消息中的肥肉关键词
-        if "肥肉" in msg.content and msg.from_group() and msg.roomid in self.allowed_groups:
+        if "肥肉" in msg.content and msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 01:
             def delayed_msg():
                 # 先拍一拍
                 self.wcf.send_pat_msg(msg.roomid, msg.sender)
@@ -294,7 +294,7 @@ class Robot(Job):
         :param receiver: 接收人wxid或者群id
         :param at_list: 要@的wxid, @所有人的wxid为：notify@all
         """
-        # 初始化@列表为空
+        # 初始化@列��为空
         ats = ""
         # 如果有@列表
         if at_list:
@@ -302,7 +302,7 @@ class Robot(Job):
             if at_list == "notify@all":
                 ats = " @所有人"
             else:
-                # 将@列表按逗号分割成wxid列表
+                # 将@列表按���号分割成wxid列表
                 wxids = at_list.split(",")
                 # 遍历wxid列表
                 for wxid in wxids:
