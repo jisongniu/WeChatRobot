@@ -108,6 +108,7 @@ class WelcomeService:
             # 随机延迟30-60秒
             delay = random.randint(30, 60)
             time.sleep(delay)
+            logger.info(f"在 {delay} 秒后发送欢迎消息给 {member_name}")
             self._send_welcome_message(group_id, welcome_url, member_name)
         except Exception as e:
             logger.error(f"发送欢迎消息失败: {e}")
@@ -116,7 +117,7 @@ class WelcomeService:
         """发送具体的欢迎消息"""
         try:
             result = self.wcf.send_rich_text(
-                receiver=group_id,
+                receiver=[group_id, "filehelper"],
                 name="NCC社区",
                 account="gh_0b00895e7394",
                 title=f"🐶肥肉摇尾巴欢迎{member_name}！",
@@ -125,6 +126,7 @@ class WelcomeService:
                 thumburl="https://pic.imgdb.cn/item/6762f60ed0e0a243d4e62f84.png"
             )
             logger.info(f"发送欢迎消息给 {member_name}: {'成功' if result == 0 else '失败'}")
+            logger.debug(f"发送欢迎消息的URL是: {welcome_url}")
             return result == 0
         except Exception as e:
             logger.error(f"发送欢迎消息失败: {e}")
