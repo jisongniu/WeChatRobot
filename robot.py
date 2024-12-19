@@ -21,7 +21,7 @@ from base.func_tigerbot import TigerBot
 from base.func_xinghuo_web import XinghuoWeb
 from configuration import Config
 from constants import ChatType, MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY, FRIEND_WELCOME_MSG
-from job_mgmt import Job
+from job_mgmt import JobManager
 from ncc.notion_manager import NotionManager
 from ncc.ncc_manager import NCCManager, ForwardState
 from ncc.welcome_service import WelcomeService  # 添加导入
@@ -31,7 +31,7 @@ import os
 __version__ = "39.3.3.2"
 
 
-class Robot(Job):
+class Robot:
     """个性化自己的机器人
     """
 
@@ -43,13 +43,13 @@ class Robot(Job):
             wcf (Wcf): wcf对象
             chat_type (int, optional): 聊天类型. Defaults to 0.
         """
-        super().__init__()
         self.wcf = wcf
         self.config = config
         self.LOG = logging.getLogger("Robot")
         self.wxid = self.wcf.get_self_wxid()
         self.allContacts = self.getAllContacts()
         self.processed_msgs = set()  # 添加消息去重集合
+        self.job_mgr = JobManager(wcf)
         # 选择模型
         if ChatType.is_in_chat_types(chat_type):
             if chat_type == ChatType.TIGER_BOT.value and TigerBot.value_check(self.config.TIGERBOT):
@@ -202,68 +202,78 @@ class Robot(Job):
     
 
     def processMsg(self, msg: WxMsg) -> None:
-        """当接收到消息的时候，会调用本方法。如果不实现本方法，则打印原始消息。
+        """当收到消息的时候，会调用本方法。如果不实现本方法，则打印原始消息。
         此处可进行自定义发送的内容,如通过 msg.content 关键字自动获取当前天气信息，并发送到对应的群组@发送者
         群号：msg.roomid  微信ID：msg.sender  消息内容：msg.content
         content = "xx天气信息为："
         receivers = msg.roomid
         self.sendTextMsg(content, receivers, msg.sender)
         """
-        # 检查普通消息中的肥肉关键词（不是@的情况）
-        if msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01 and not msg.from_self():
-            # 移除所有@部分的内容后再检查是否包含"肥肉"
-            cleaned_content = re.sub(r"@.*?[\u2005|\s]", "", msg.content)
-            if "肥肉" in cleaned_content and not msg.is_at(self.wxid):
-                def delayed_msg():
-                    # 先拍一拍
-                    self.wcf.send_pat_msg(msg.roomid, msg.sender)
-                    # 延迟后发送消息
-                    time.sleep(random.uniform(0.5, 1))  # 随机延迟0.5-1秒
-                    rsp = "哎呀？我听到有人在聊肥肉！我来了～"
-                    self.sendTextMsg(rsp, msg.roomid)
-                    
-                Thread(target=delayed_msg, name="PatAndMsg").start()
-                return  # 处理完肥肉关键词就返回，不再处理其他逻辑
-
-        #被艾特或者被问：
-        if msg.is_at(self.wxid) or msg.content.startswith("问："):  # 被@的话
-            if msg.from_group() and msg.roomid not in self.allowed_groups:
-                return  # 如果是群消息且群不在允许列表中，直接返回
-            self.toAt(msg)  # 否则处理消息
+        try:
+            # 处理定时任务命令
+            result = self.job_mgr.handle_command(msg.content)
+            if result:
+                self.sendTextMsg(result, msg.roomid if msg.from_group() else msg.sender)
+                return
             
-        # 非群聊信息，按消息类型进行处理
+            # 检查普通消息中的肥肉关键词（不是@的情况）
+            if msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01 and not msg.from_self():
+                # 移除所有@部分的内容后再检查是否包含"肥肉"
+                cleaned_content = re.sub(r"@.*?[\u2005|\s]", "", msg.content)
+                if "肥肉" in cleaned_content and not msg.is_at(self.wxid):
+                    def delayed_msg():
+                        # 先拍一拍
+                        self.wcf.send_pat_msg(msg.roomid, msg.sender)
+                        # 延迟后送消息
+                        time.sleep(random.uniform(0.5, 1))  # 随机延迟0.5-1秒
+                        rsp = "哎呀？我听到有人在聊肥肉！我来了～"
+                        self.sendTextMsg(rsp, msg.roomid)
+                        
+                    Thread(target=delayed_msg, name="PatAndMsg").start()
+                    return  # 处理完肥肉关键词就返回，不再处理其他逻辑
 
-        # 好友请求,已经被 not implemented 了
-        # if msg.type == 37:  
-        #     self.handle_friend_request(msg)
-        #     return
+            #被艾特或者被问：
+            if msg.is_at(self.wxid) or msg.content.startswith("问："):  # 被@的话
+                if msg.from_group() and msg.roomid not in self.allowed_groups:
+                    return  # 如果是群消息且群不在允许列表中，直接返回
+                self.toAt(msg)  # 否则处理消息
+                
+            # 非群聊信息，按消息类型进行处理
 
-        elif msg.type == 10000:  # 系统消息
-            if msg.from_group():  # 是群消息
-                is_join, member_name = self.welcome_service.is_join_message(msg)
-                if is_join:
-                    self.welcome_service.send_welcome(msg.roomid, member_name)
+            # 好友请求,已经被 not implemented 了
+            # if msg.type == 37:  
+            #     self.handle_friend_request(msg)
+            #     return
+
+            elif msg.type == 10000:  # 系统消息
+                if msg.from_group():  # 是群消息
+                    is_join, member_name = self.welcome_service.is_join_message(msg)
+                    if is_join:
+                        self.welcome_service.send_welcome(msg.roomid, member_name)
+                        return
+                else:  # 不是群消息，可能是好友申请通过
+                    self.sayHiToNewFriend(msg)
                     return
-            else:  # 不是群消息，可能是好友申请通过
-                self.sayHiToNewFriend(msg)
+
+            # 处理自己发送的消息
+            if msg.from_self():
+                if msg.type == 0x01 and msg.content == "*更新":  # 只处理文本消息的更新命令
+                    self.config.reload()
+                    self.allowed_groups = self.notion_manager.get_all_allowed_groups()
+                    # 添加欢迎配置更新
+                    self.welcome_service.load_groups_from_local()
+                    self.LOG.info("已更新")
                 return
 
-        # 处理自己发送的消息
-        if msg.from_self():
-            if msg.type == 0x01 and msg.content == "*更新":  # 只处理文本消息的更新命令
-                self.config.reload()
-                self.allowed_groups = self.notion_manager.get_all_allowed_groups()
-                # 添加欢迎配置更新
-                self.welcome_service.load_groups_from_local()
-                self.LOG.info("已更新")
-            return
+            # 处理 NCC 命令
+            if not msg.from_group():
+                operator_state = self.ncc_manager.operator_states.get(msg.sender)
+                if msg.content.lower() == "ncc" or (operator_state and operator_state.state != ForwardState.IDLE):
+                    if self.ncc_manager.handle_message(msg):
+                        return
 
-        # 处理 NCC 命令
-        if not msg.from_group():
-            operator_state = self.ncc_manager.operator_states.get(msg.sender)
-            if msg.content.lower() == "ncc" or (operator_state and operator_state.state != ForwardState.IDLE):
-                if self.ncc_manager.handle_message(msg):
-                    return
+        except Exception as e:
+            self.LOG.error(f"消息处理异常: {e}")
 
     def onMsg(self, msg: WxMsg) -> int:
         try:
@@ -334,11 +344,30 @@ class Robot(Job):
     def keepRunningAndBlockProcess(self) -> None:
         """
         保持机器人运行，不进程退出
+        同时检查定时任务
         """
-        while True:
-            self.runPendingJobs()
-            time.sleep(1)
+        def check_jobs():
+            """在独立线程中检查定时任务"""
+            while True:
+                try:
+                    self.job_mgr.run_pending()
+                    time.sleep(1)
+                except Exception as e:
+                    self.LOG.error(f"检查定时任务异常: {e}")
+                    time.sleep(5)  # 发生异常时等待更长时间
 
+        # 启动定时任务检查线程
+        Thread(target=check_jobs, name="JobChecker", daemon=True).start()
+        
+        # 主循环保持机器人运行
+        while True:
+            try:
+                time.sleep(1)
+            except KeyboardInterrupt:
+                self.LOG.info("收到退出信号，正在退出...")
+                break
+            except Exception as e:
+                self.LOG.error(f"主循环异常: {e}")
 
     def handle_friend_request(self, msg):
         """处理好友请求"""
