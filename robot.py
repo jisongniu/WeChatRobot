@@ -209,14 +209,8 @@ class Robot(Job):
         receivers = msg.roomid
         self.sendTextMsg(content, receivers, msg.sender)
         """
-        #被艾特或者被问：
-        if msg.is_at(self.wxid) or msg.content.startswith("问："):  # 被@的话
-            if msg.from_group() and msg.roomid not in self.allowed_groups:
-                return  # 如果是群消息且群不在允许列表中，直接返回
-            self.toAt(msg)  # 否则处理消息
-            
-        # 检查普通消息中的肥肉关键词
-        if "肥肉" in msg.content and msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01:
+        # 检查普通消息中的肥肉关键词（不是@的情况）
+        if "肥肉" in msg.content and msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01 and not msg.is_at(self.wxid):
             def delayed_msg():
                 # 先拍一拍
                 self.wcf.send_pat_msg(msg.roomid, msg.sender)
@@ -226,7 +220,14 @@ class Robot(Job):
                 self.sendTextMsg(rsp, msg.roomid)
                 
             Thread(target=delayed_msg, name="PatAndMsg").start()
+            return  # 处理完肥肉关键词就返回，不再处理其他逻辑
 
+        #被艾特或者被问：
+        if msg.is_at(self.wxid) or msg.content.startswith("问："):  # 被@的话
+            if msg.from_group() and msg.roomid not in self.allowed_groups:
+                return  # 如果是群消息且群不在允许列表中，直接返回
+            self.toAt(msg)  # 否则处理消息
+            
         # 非群聊信息，按消息类型进行处理
 
         # 好友请求,已经被 not implemented 了
