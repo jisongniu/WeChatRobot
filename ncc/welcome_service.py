@@ -122,8 +122,8 @@ class WelcomeService:
                 receiver=group_id,
                 name="NCC社区",
                 account="gh_0b00895e7394",
-                title=f"🐶肥肉摇尾巴欢迎{member_name}！",
-                digest=f"Hi {member_name}，点开看看",
+                title=f"🐶肥肉摇尾巴欢迎{member_name}！点开看看",
+                digest=f"我是ncc团宠肥肉～\n这里是在地信息大全\n日常更新哦",
                 url=welcome_url,
                 thumburl="https://pic.imgdb.cn/item/6762f60ed0e0a243d4e62f84.png"
             )
