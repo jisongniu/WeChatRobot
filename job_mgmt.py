@@ -23,19 +23,59 @@ class MessageSender(Protocol):
 
 class WCFMessageSender(MessageSender):
     """WCF框架消息发送适配器"""
-    def __init__(self, wcf: Wcf):
+    def __init__(self, wcf: Wcf, robot=None):
         self.wcf = wcf
+        self.robot = robot  # 保存Robot实例的引用
+    
+    def get_group_id_by_name(self, group_name: str) -> Optional[str]:
+        """通过群名查找群ID
+        Args:
+            group_name: 群名称
+        Returns:
+            Optional[str]: 群ID，未找到返回None
+        """
+        try:
+            # 首先检查群是否在允许列表中
+            if not self.robot or group_name not in self.robot.allowed_groups:
+                logging.error(f"群[{group_name}]不在允许列表中或机器人没有发言权限")
+                return None
+            
+            # 从允许列表中获取群ID
+            return self.robot.allowed_groups.get(group_name)
+            
+        except Exception as e:
+            logging.error(f"查找群ID失败: {e}")
+            return None
     
     def send_message(self, message: str, target: Optional[str] = None, at_all: bool = False) -> bool:
         try:
             if target:
+                # 如果target是群名而不是群ID，尝试查找群ID
+                if target.startswith("group[") and target.endswith("]"):
+                    group_name = target[6:-1]  # 提取群名
+                    group_id = self.get_group_id_by_name(group_name)
+                    if not group_id:
+                        error_msg = (
+                            f"无法发送消息到群[{group_name}]\n"
+                            "可能原因:\n"
+                            "1. 群名称不正确\n"
+                            "2. 该群未在允许列表中\n"
+                            "3. 机器人没有在该群的发言权限\n"
+                            "请检查群名称或联系管理员添加权限"
+                        )
+                        self.wcf.send_text(error_msg, receiver)
+                        return False
+                    target = group_id
+                
                 if at_all:
                     # 使用wcf的@所有人功能
                     self.wcf.send_text(message, target, "notify@all")
                 else:
                     self.wcf.send_text(message, target)
             else:
-                self.wcf.send_text(message, "filehelper")  # 默认发送到文件传输助手
+                # 使用task中保存的sender作为默认接收者
+                receiver = target or self.task.sender
+                self.wcf.send_text(message, receiver)
             return True
         except Exception as e:
             logging.error(f"发送消息失败: {e}")
@@ -45,25 +85,28 @@ class TimeTask:
     def __init__(self, task_id: str, schedule_type: str, time_str: str, 
                  message: str, target: Optional[str] = None, 
                  plugin_name: Optional[str] = None,
-                 at_all: bool = False) -> None:
+                 at_all: bool = False,
+                 sender: Optional[str] = None) -> None:
         self.task_id = task_id
-        self.schedule_type = schedule_type  # daily, weekly, workday, date, cron
+        self.schedule_type = schedule_type
         self.time_str = time_str
         self.message = message
-        self.target = target  # 群组ID或用户ID
+        self.target = target
         self.plugin_name = plugin_name
         self.at_all = at_all
-        self.job = None  # schedule.Job实例
+        self.sender = sender
+        self.job = None
 
 class JobManager:
-    def __init__(self, wcf: Wcf) -> None:
+    def __init__(self, wcf: Wcf, robot=None) -> None:
         """初始化任务管理器
         Args:
             wcf: WCF实例
+            robot: Robot实例，用于访问群组权限
         """
         self.tasks: Dict[str, TimeTask] = {}
         self.plugins: Dict[str, Callable] = {}
-        self.message_sender = WCFMessageSender(wcf)
+        self.message_sender = WCFMessageSender(wcf, robot)
         self._load_tasks()
         self.start_job_checker()
 
@@ -80,7 +123,7 @@ class JobManager:
         
         threading.Thread(target=job_checker, daemon=True).start()
 
-    def handle_command(self, message: str) -> Optional[str]:
+    def handle_command(self, message: str, sender: str) -> Optional[str]:
         """处理定时任务命令
         Args:
             message: 消息内容
@@ -99,7 +142,7 @@ class JobManager:
                 return self.list_tasks()
                 
             else:
-                return self.add_task(message)
+                return self.add_task(message, sender)
                 
         except Exception as e:
             logging.error(f"处理定时任务命令异常: {e}")
@@ -207,7 +250,7 @@ class JobManager:
             "at_all": at_all
         }
 
-    def add_task(self, command: str) -> str:
+    def add_task(self, command: str, sender: str) -> str:
         """添加定时任务"""
         parsed = self.parse_command(command)
         if not parsed:
@@ -216,6 +259,7 @@ class JobManager:
         task_id = f"{len(self.tasks)}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         task = TimeTask(
             task_id=task_id,
+            sender=sender,
             **parsed
         )
         

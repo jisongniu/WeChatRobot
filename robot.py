@@ -211,7 +211,7 @@ class Robot:
         """
         try:
             # 处理定时任务命令
-            result = self.job_mgr.handle_command(msg.content)
+            result = self.job_mgr.handle_command(msg.content, msg.sender)
             if result:
                 self.sendTextMsg(result, msg.roomid if msg.from_group() else msg.sender)
                 return
