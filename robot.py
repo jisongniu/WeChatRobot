@@ -210,17 +210,20 @@ class Robot(Job):
         self.sendTextMsg(content, receivers, msg.sender)
         """
         # 检查普通消息中的肥肉关键词（不是@的情况）
-        if "肥肉" in msg.content and msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01 and not msg.is_at(self.wxid):
-            def delayed_msg():
-                # 先拍一拍
-                self.wcf.send_pat_msg(msg.roomid, msg.sender)
-                # 延迟后发送消息
-                time.sleep(random.uniform(0.5, 1))  # 随机延迟0.5-1秒
-                rsp = "哎呀？我听到有人在聊肥肉！我来了～"
-                self.sendTextMsg(rsp, msg.roomid)
-                
-            Thread(target=delayed_msg, name="PatAndMsg").start()
-            return  # 处理完肥肉关键词就返回，不再处理其他逻辑
+        if msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01:
+            # 移除所有@部分的内容后再检查是否包含"肥肉"
+            cleaned_content = re.sub(r"@.*?[\u2005|\s]", "", msg.content)
+            if "肥肉" in cleaned_content and not msg.is_at(self.wxid):
+                def delayed_msg():
+                    # 先拍一拍
+                    self.wcf.send_pat_msg(msg.roomid, msg.sender)
+                    # 延迟后发送消息
+                    time.sleep(random.uniform(0.5, 1))  # 随机延迟0.5-1秒
+                    rsp = "哎呀？我听到有人在聊肥肉！我来了～"
+                    self.sendTextMsg(rsp, msg.roomid)
+                    
+                Thread(target=delayed_msg, name="PatAndMsg").start()
+                return  # 处理完肥肉关键词就返回，不再处理其他逻辑
 
         #被艾特或者被问：
         if msg.is_at(self.wxid) or msg.content.startswith("问："):  # 被@的话
