@@ -155,6 +155,7 @@ class Robot(Job):
     def toAIchat(self, msg: WxMsg) -> bool:
         """AI模式
         """
+        self.LOG.info("正在查询ai获取回复")
         # 如果没有配置 ChatGPT，返回固定回复
         if not self.chat:
             rsp = self.toChitchat(msg)
@@ -188,8 +189,8 @@ class Robot(Job):
             # 移除前缀
             msg.content = msg.content.replace("问：", "").replace("【问：】", "")
             return self.toAIchat(msg)
-        elif "机器" in msg.content:
-            rsp = "有事【问：】开头，没事憋找我，滚。"
+        elif "肥肉" in msg.content:
+            rsp = "哎呀？我听到有人在聊肥肉！我来了！什么事！"
         else:
             rsp = None  # 不回复
             
