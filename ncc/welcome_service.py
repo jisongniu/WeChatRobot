@@ -8,6 +8,9 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import random
 import time
+logging.basicConfig(level=logging.DEBUG)
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -116,10 +119,10 @@ class WelcomeService:
                 receiver=group_id,
                 name="NCC社区",
                 account="gh_0b00895e7394",
-                title=f"{member_name}，欢迎加入NCC社区",
+                title=f"🐶肥肉摇尾巴欢迎{member_name}！",
                 digest=f"Hi {member_name}，点开看看",
                 url=welcome_url,
-                thumburl=""  # 空字符串表示不使用缩略图
+                thumburl="https://pic.imgdb.cn/item/6762f60ed0e0a243d4e62f84.png"
             )
             logger.info(f"发送欢迎消息给 {member_name}: {'成功' if result == 0 else '失败'}")
             return result == 0
