@@ -38,7 +38,7 @@ class WCFMessageSender(MessageSender):
             # 2. 简单的字典查找
             if group_name in groups_info:
                 group_id = groups_info[group_name]
-                logging.info(f"找到群: {group_name} -> {group_id}")
+                logging.debug(f"找到群: {group_name} -> {group_id}")
                 return group_id
                 
             logging.error(f"群[{group_name}]不在允许列表中")
@@ -50,7 +50,7 @@ class WCFMessageSender(MessageSender):
     
     def send_message(self, message: str, target: Optional[str] = None, at_all: bool = False, sender: Optional[str] = None) -> bool:
         try:
-            logging.info(f"准备发送消息: msg={message}, target={target}, at_all={at_all}, sender={sender}")
+            logging.debug(f"准备发送消息: msg={message}, target={target}, at_all={at_all}, sender={sender}")
             if target:
                 if at_all:
                     # 使用wcf的@所有人功能
@@ -266,7 +266,7 @@ class JobManager:
         """添加定时任务"""
         # logging.info(f"尝试添加任务: command={command}, sender={sender}")
         parsed = self.parse_command(command)
-        logging.info(f"解析结果: {parsed}")
+        logging.debug(f"解析结果: {parsed}")
         if not parsed:
             return "命令格式错误"
             
@@ -293,7 +293,7 @@ class JobManager:
             sender=sender,
             **parsed
         )
-        logging.info(f"创建任务对象: {task.__dict__}")
+        logging.debug(f"创建任务对象: {task.__dict__}")
         
         # 设置定时任务
         if task.schedule_type == "daily":
@@ -432,7 +432,8 @@ class JobManager:
                 task_time = datetime.strptime(task.time_str, "%H:%M:%S").time()
                 task_datetime = datetime.combine(task_date.date(), task_time)
                 
-                if now > task_datetime:
+                # 只清理已经过期超过1分钟的任务
+                if (now - task_datetime).total_seconds() > 60:
                     expired_tasks.append(task_id)
                     schedule.cancel_job(task.job)
         
@@ -446,6 +447,6 @@ class JobManager:
 
     def run_pending(self) -> None:
         """运行待执行的任务"""
-        self.clean_expired_tasks()  # 每次检查时清理过期任务
+        self.clean_expired_tasks()  # 在执行完任务后再清理过期任务
         schedule.run_pending()
 
