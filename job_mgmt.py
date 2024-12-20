@@ -287,7 +287,7 @@ class JobManager:
             logging.info(f"群名[{group_name}]已转换为群ID: {group_id}")
             parsed['target'] = group_id
             
-        task_id = f"{len(self.tasks)}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        task_id = f"t{len(self.tasks)}_{int(datetime.now().timestamp())}"
         task = TimeTask(
             task_id=task_id,
             sender=sender,
@@ -420,7 +420,32 @@ class JobManager:
                 return num
         return 0
 
+    def clean_expired_tasks(self) -> None:
+        """清理过期的一次性任务"""
+        now = datetime.now()
+        expired_tasks = []
+        
+        for task_id, task in self.tasks.items():
+            # 检查一次性任务（date类型）是否过期
+            if task.schedule_type.startswith('20'):  # 年份格式
+                task_date = datetime.strptime(task.schedule_type, "%Y-%m-%d")
+                task_time = datetime.strptime(task.time_str, "%H:%M:%S").time()
+                task_datetime = datetime.combine(task_date.date(), task_time)
+                
+                if now > task_datetime:
+                    expired_tasks.append(task_id)
+                    schedule.cancel_job(task.job)
+        
+        # 移除过期任务
+        for task_id in expired_tasks:
+            del self.tasks[task_id]
+        
+        if expired_tasks:
+            self._save_tasks()
+            logging.info(f"已清理 {len(expired_tasks)} 个过期任务")
+
     def run_pending(self) -> None:
         """运行待执行的任务"""
+        self.clean_expired_tasks()  # 每次检查时清理过期任务
         schedule.run_pending()
 
