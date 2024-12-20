@@ -96,6 +96,7 @@ class Robot:
         )
         # 初始化时加载一次群组列表
         self.allowed_groups = self.notion_manager.get_all_allowed_groups()
+        self.LOG.info(f"初始化允许的群组: {self.allowed_groups}")
         
         self.ncc_manager = NCCManager(
             notion_manager=self.notion_manager,

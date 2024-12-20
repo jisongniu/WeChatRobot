@@ -270,7 +270,7 @@ class NotionManager:
                 else:
                     logger.warning(f"群 {group_name} 未找到对应的 wxid")
             
-            logger.info(f"共找到 {len(allowed_groups)} 个允许发言的群组")
+            #logger.info(f"共找到 {len(allowed_groups)} 个允许发言的群组")
             return allowed_groups
             
         except Exception as e:
@@ -292,6 +292,34 @@ class NotionManager:
         except Exception as e:
             logger.error(f"获取转发列表的群组失败: {e}")
             return []
+
+    def get_groups_info(self) -> Dict[str, str]:
+        """获取群名到群ID的映射
+        Returns:
+            Dict[str, str]: {群名: 群ID}
+        """
+        try:
+            # 缓存处理
+            if hasattr(self, '_groups_cache'):
+                return self._groups_cache
+                
+            # 获取数据
+            groups = {}
+            lists = self.get_all_lists_and_groups()
+            for lst in lists:
+                for group in lst.groups:
+                    name = group.get('group_name')
+                    wxid = group.get('wxid')
+                    if name and wxid:
+                        groups[name] = wxid
+                        
+            # 保存缓存
+            self._groups_cache = groups
+            return groups
+            
+        except Exception as e:
+            logger.error(f"获取群组信息失败: {e}")
+            return {}
 
 
 

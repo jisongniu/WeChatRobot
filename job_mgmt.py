@@ -10,6 +10,8 @@ import threading
 import time
 from wcferry import Wcf
 
+
+
 class MessageSender(Protocol):
     """消息发送器接口"""
     def send_message(self, message: str, target: Optional[str] = None, at_all: bool = False, sender: Optional[str] = None) -> bool:
@@ -28,27 +30,19 @@ class WCFMessageSender(MessageSender):
         self.robot = robot  # 保存Robot实例的引用
     
     def get_group_id_by_name(self, group_name: str) -> Optional[str]:
-        """通过群名查找群ID
-        Args:
-            group_name: 群名称
-        Returns:
-            Optional[str]: 群ID，未找到返回None
-        """
+        """通过群名查找群ID"""
         try:
-            logging.debug(f"尝试查找群[{group_name}]的ID")
-            # 首先检查群是否在允许列表中
-            if not self.robot or group_name not in self.robot.allowed_groups:
-                logging.error(f"群[{group_name}]不在允许列表中")
-                if not self.robot:
-                    logging.error("robot实例未初始化")
-                else:
-                    logging.debug(f"当前允许的群列表: {list(self.robot.allowed_groups.keys())}")
-                return None
+            # 1. 直接从 notion_manager 获取群名到群ID的映射
+            groups_info = self.robot.notion_manager.get_groups_info()  # 新方法
             
-            # 从允许列表中获取群ID
-            group_id = self.robot.allowed_groups.get(group_name)
-            logging.info(f"找到群[{group_name}]的ID: {group_id}")
-            return group_id
+            # 2. 简单的字典查找
+            if group_name in groups_info:
+                group_id = groups_info[group_name]
+                logging.info(f"找到群: {group_name} -> {group_id}")
+                return group_id
+                
+            logging.error(f"群[{group_name}]不在允许列表中")
+            return None
             
         except Exception as e:
             logging.error(f"查找群ID失败: {e}")
@@ -56,24 +50,8 @@ class WCFMessageSender(MessageSender):
     
     def send_message(self, message: str, target: Optional[str] = None, at_all: bool = False, sender: Optional[str] = None) -> bool:
         try:
+            logging.info(f"准备发送消息: msg={message}, target={target}, at_all={at_all}, sender={sender}")
             if target:
-                # 如果target是群名而不是群ID，尝试查找群ID
-                if target.startswith("group[") and target.endswith("]"):
-                    group_name = target[6:-1]  # 提取群名
-                    group_id = self.get_group_id_by_name(group_name)
-                    if not group_id:
-                        error_msg = (
-                            f"无法发送消息到群[{group_name}]\n"
-                            "可能原因:\n"
-                            "1. 群名称不正确\n"
-                            "2. 该群未在允许列表中\n"
-                            "3. 机器人没有在该群的发言权限\n"
-                            "请检查群名称或联系管理员添加权限"
-                        )
-                        self.wcf.send_text(error_msg, sender)
-                        return False
-                    target = group_id
-                
                 if at_all:
                     # 使用wcf的@所有人功能
                     self.wcf.send_text(message, target, "notify@all")
@@ -235,10 +213,12 @@ class JobManager:
         
         pattern = r"\$time\s+([^\s]+)\s+([^\s]+)\s+(.+?)(?:\s+group\[([^\]]+)\])?$"
         match = re.match(pattern, command)
+        #logging.info(f"命令匹配结果: {match.groups() if match else None}")
         if not match:
             return None
-        
+            
         schedule_type, time_str, message, group = match.groups()
+        # logging.info(f"解析出的参数: type={schedule_type}, time={time_str}, msg={message}, group={group}")
         
         # 标准化周期类型
         if schedule_type in ["每天", "daily"]:
@@ -284,9 +264,28 @@ class JobManager:
 
     def add_task(self, command: str, sender: str) -> str:
         """添加定时任务"""
+        # logging.info(f"尝试添加任务: command={command}, sender={sender}")
         parsed = self.parse_command(command)
+        logging.info(f"解析结果: {parsed}")
         if not parsed:
             return "命令格式错误"
+            
+        # 如果是群消息，先转换群名为群ID
+        target = parsed.get('target')
+        if target:
+            # 移除 group[] 包装（如果有的话）
+            if target.startswith("group[") and target.endswith("]"):
+                group_name = target[6:-1]
+            else:
+                group_name = target
+                
+            # 从 allowed_groups 中查找群ID
+            group_id = self.message_sender.get_group_id_by_name(group_name)
+            if not group_id:
+                return f"无法找到群[{group_name}]的ID，请检查群名称或权限"
+                
+            logging.info(f"群名[{group_name}]已转换为群ID: {group_id}")
+            parsed['target'] = group_id
             
         task_id = f"{len(self.tasks)}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         task = TimeTask(
@@ -294,6 +293,7 @@ class JobManager:
             sender=sender,
             **parsed
         )
+        logging.info(f"创建任务对象: {task.__dict__}")
         
         # 设置定时任务
         if task.schedule_type == "daily":
@@ -357,15 +357,20 @@ class JobManager:
 
     def _execute_task(self, task: TimeTask) -> None:
         """执行定时任务"""
-        if task.plugin_name and task.plugin_name in self.plugins:
-            self.plugins[task.plugin_name](task.message, task.target)
-        else:
-            # 发送普通消息
-            if task.at_all and task.target:
-                # 如果需要@所有人且是群消息
-                self.message_sender.send_message(task.message, task.target, at_all=True, sender=task.sender)
+        try:
+            logging.info(f"开始执行任务[{task.task_id}]: {task.__dict__}")
+            
+            if task.plugin_name and task.plugin_name in self.plugins:
+                self.plugins[task.plugin_name](task.message, task.target)
             else:
-                self.message_sender.send_message(task.message, task.target, sender=task.sender)
+                # 发送普通消息
+                if task.at_all and task.target:
+                    self.message_sender.send_message(task.message, task.target, at_all=True, sender=task.sender)
+                else:
+                    self.message_sender.send_message(task.message, task.target, sender=task.sender)
+                logging.info(f"消息已发送到: {task.target}")
+        except Exception as e:
+            logging.error(f"执行任务[{task.task_id}]失败: {e}", exc_info=True)
 
     def _execute_task_if_workday(self, task: TimeTask) -> None:
         """仅在工作日执行任务"""
@@ -374,8 +379,20 @@ class JobManager:
 
     def _execute_task_on_date(self, task: TimeTask, target_date: datetime) -> None:
         """在指定日期执行任务"""
-        if datetime.now().date() == target_date.date():
+        now = datetime.now()
+        task_time = datetime.strptime(task.time_str, "%H:%M:%S").time()
+        target_datetime = datetime.combine(target_date.date(), task_time)
+        
+        logging.info(f"检查定时任务: now={now}, target={target_datetime}")
+        
+        if now.date() == target_date.date() and now.time() >= task_time:
             self._execute_task(task)
+            # 任务执行完后，从任务列表中移除
+            if task.task_id in self.tasks:
+                schedule.cancel_job(task.job)
+                del self.tasks[task.task_id]
+                self._save_tasks()
+                logging.info(f"一次性任务 {task.task_id} 执行完成，已移除")
 
     def _schedule_cron(self, task: TimeTask) -> schedule.Job:
         """使用cron表达式调度任务"""
