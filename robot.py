@@ -307,35 +307,43 @@ class Robot:
         Thread(target=innerProcessMsg, name="GetMessage", args=(self.wcf,), daemon=True).start()
 
     def sendTextMsg(self, msg: str, receiver: str, at_list: str = "") -> None:
-        """ 送消息
+        """ 发送消息
         :param msg: 消息字符串
         :param receiver: 接收人wxid或者群id
         :param at_list: 要@的wxid, @所有人的wxid为：notify@all
         """
-        # 初始化@列表为空
-        ats = ""
-        # 如果有@列表
-        if at_list:
-            # 如果@列表是"notify@all"，则@所有人
-            if at_list == "notify@all":
-                ats = " @所有人"
-            else:
-                # 将@列表按逗号分割成wxid列表
-                wxids = at_list.split(",")
-                # 遍历wxid列表
-                for wxid in wxids:
-                    # 根据wxid和接收人查找群昵称，并添加到@列表中
-                    ats += f" @{self.wcf.get_alias_in_chatroom(wxid, receiver)}"
+        try:
+            # 添加随机延迟
+            delay = random.uniform(0.5, 1.5)  # 随机 0.5-1.5 秒延迟
+            time.sleep(delay)
+            
+            # 初始化@列表为空
+            ats = ""
+            # 如果有@列表
+            if at_list:
+                # 如果@列表是"notify@all"，则@所有人
+                if at_list == "notify@all":
+                    ats = " @所有人"
+                else:
+                    # 将@列表按逗号分割成wxid列表
+                    wxids = at_list.split(",")
+                    # 遍历wxid列表
+                    for wxid in wxids:
+                        # 根据wxid和接收人查找群昵称，并添加到@列表中
+                        ats += f" @{self.wcf.get_alias_in_chatroom(wxid, receiver)}"
 
-        # 构建最终发送的消息内容
-        # 如果@列表为空，则直接发送消息
-        if ats == "":
-            self.LOG.info(f"To {receiver}: {msg}")
-            self.wcf.send_text(f"{msg}", receiver, at_list)
-        else:
-            # 如果@列表不为空，则在消息内容后添加@列表
-            self.LOG.info(f"To {receiver}: {ats}\r{msg}")
-            self.wcf.send_text(f"{ats}\n\n{msg}", receiver, at_list)
+            # 构建最终发送的消息内容
+            # 如果@列表为空，则直接发送消息
+            if ats == "":
+                self.LOG.info(f"To {receiver}: {msg}")
+                self.wcf.send_text(f"{msg}", receiver, at_list)
+            else:
+                # 如果@列表不为空，则在消息内容后添加@列表
+                self.LOG.info(f"To {receiver}: {ats}\r{msg}")
+                self.wcf.send_text(f"{ats}\n\n{msg}", receiver, at_list)
+
+        except Exception as e:
+            self.LOG.error(f"发送消息失败: {e}")
 
     def getAllContacts(self) -> dict:
         """
