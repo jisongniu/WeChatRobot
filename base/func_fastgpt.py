@@ -45,12 +45,15 @@ class FastGPT:
         rsp = ""
         
         try:
+            # 完全匹配curl的请求头
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "User-Agent": "curl/7.79.1",  # 添加User-Agent
+                "Accept": "*/*"  # 添加Accept
             }
             
-            # 准备消息列表，只发送最后一条用户消息
+            # 准备消息列表，只发送当前消息
             messages = [
                 {
                     "content": question,
@@ -67,13 +70,15 @@ class FastGPT:
             
             # 记录请求信息
             self.LOG.info(f"正在发送请求到 FastGPT API: {self.api_url}")
+            self.LOG.debug(f"请求头: {headers}")
             self.LOG.debug(f"请求负载: {json.dumps(payload, ensure_ascii=False)}")
             
-            # 使用与curl相同的请求格式
+            # 使用与curl完全相同的请求格式
+            payload_str = json.dumps(payload, ensure_ascii=False)
             response = self.client.post(
                 self.api_url,
                 headers=headers,
-                data=json.dumps(payload),  # 使用data而不是content或json
+                content=payload_str.encode('utf-8'),  # 确保使用UTF-8编码
                 timeout=self.timeout
             )
             
