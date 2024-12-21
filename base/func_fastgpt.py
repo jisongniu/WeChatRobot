@@ -15,12 +15,13 @@ class FastGPT:
         self.prompt = conf.get("prompt")
         self.LOG = logging.getLogger("FastGPT")
         
-        # 初始化HTTP客户端，设置较长的超时时间（2分钟）
-        self.timeout = httpx.Timeout(120.0, connect=20.0)  # 总超时120秒，连接超时20秒
+        # 初始化HTTP客户端，设置较长的超时时间（5分钟）
+        self.timeout = httpx.Timeout(300.0, connect=60.0)  # 总超时300秒，连接超时60秒
+        transport = httpx.HTTPTransport(retries=0)  # 禁用自动重试
         if self.proxy:
-            self.client = httpx.Client(proxies=self.proxy, timeout=self.timeout)
+            self.client = httpx.Client(proxies=self.proxy, timeout=self.timeout, transport=transport)
         else:
-            self.client = httpx.Client(timeout=self.timeout)
+            self.client = httpx.Client(timeout=self.timeout, transport=transport)
             
         self.conversation_list = {}
         self.system_content_msg = {"role": "system", "content": self.prompt} if self.prompt else None
@@ -45,41 +46,35 @@ class FastGPT:
         rsp = ""
         
         try:
-            # 完全匹配curl的请求头
+            # 只使用必要的请求头，完全匹配curl
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "curl/7.79.1",  # 添加User-Agent
-                "Accept": "*/*"  # 添加Accept
+                "Content-Type": "application/json"
             }
             
             # 准备消息列表，只发送当前消息
-            messages = [
-                {
-                    "content": question,
-                    "role": "user"
-                }
-            ]
-            
             payload = {
                 "chatId": wxid,
                 "stream": False,
                 "detail": False,
-                "messages": messages
+                "messages": [
+                    {
+                        "content": question,
+                        "role": "user"
+                    }
+                ]
             }
             
             # 记录请求信息
             self.LOG.info(f"正在发送请求到 FastGPT API: {self.api_url}")
-            self.LOG.debug(f"请求头: {headers}")
             self.LOG.debug(f"请求负载: {json.dumps(payload, ensure_ascii=False)}")
             
-            # 使用与curl完全相同的请求格式
-            payload_str = json.dumps(payload, ensure_ascii=False)
+            # 使用data参数模拟curl的--data-raw
             response = self.client.post(
                 self.api_url,
                 headers=headers,
-                content=payload_str.encode('utf-8'),  # 确保使用UTF-8编码
-                timeout=self.timeout
+                data=json.dumps(payload),  # 使用data参数，对应curl的--data-raw
+                follow_redirects=True  # 对应curl的--location
             )
             
             self.LOG.debug(f"API响应: {response.text}")
