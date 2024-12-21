@@ -14,8 +14,13 @@ class FastGPT:
         self.prompt = conf.get("prompt")
         self.LOG = logging.getLogger("FastGPT")
         
-        # 初始化HTTP客户端
-        self.client = httpx.Client(proxies=self.proxy) if self.proxy else httpx.Client()
+        # 初始化HTTP客户端，设置较长的超时时间（2分钟）
+        timeout = httpx.Timeout(120.0, connect=20.0)  # 总超时120秒，连接超时20秒
+        if self.proxy:
+            self.client = httpx.Client(proxies=self.proxy, timeout=timeout)
+        else:
+            self.client = httpx.Client(timeout=timeout)
+            
         self.conversation_list = {}
         self.system_content_msg = {"role": "system", "content": self.prompt} if self.prompt else None
 
@@ -51,11 +56,13 @@ class FastGPT:
                 "messages": self.conversation_list[wxid]
             }
             
+            # 记录请求信息
+            self.LOG.info(f"正在发送请求到 FastGPT API: {self.api_url}")
+            
             response = self.client.post(
                 self.api_url,
                 headers=headers,
-                json=payload,
-                timeout=30
+                json=payload
             )
             
             if response.status_code == 200:
@@ -69,6 +76,10 @@ class FastGPT:
                 self.LOG.error(f"FastGPT API返回错误状态码: {response.status_code}")
                 self.LOG.error(f"错误响应: {response.text}")
                 
+        except httpx.ConnectTimeout:
+            self.LOG.error("连接FastGPT API超时，请检查服务是否启动")
+        except httpx.ReadTimeout:
+            self.LOG.error("读取FastGPT API响应超时，这可能是因为模型处理时间较长")
         except httpx.RequestError as e:
             self.LOG.error(f"请求FastGPT API时发生错误：{str(e)}")
         except Exception as e:
