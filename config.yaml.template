@@ -82,3 +82,9 @@ bard: # -----bard配置这行不填-----
 zhipu:  # -----zhipu配置这行不填-----
   api_key:  #api key
   model:   # 模型类型
+
+fastgpt:  # -----fastgpt配置这行不填-----
+  key:  # 填写你的 FastGPT API key，格式如：fastgpt-xxxx
+  api: http://localhost:3000/api/v1/chat/completions  # FastGPT API地址
+  proxy:  # 如果需要代理，格式如：http://域名或者IP地址:端口号
+  prompt: 你是智能聊天机器人，你叫 FastGPT助手  # 根据需要对角色进行设定
