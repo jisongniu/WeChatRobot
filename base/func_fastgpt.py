@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 import httpx
 from typing import Dict, List, Optional
+import json
 
 class FastGPT:
     def __init__(self, conf: dict) -> None:
@@ -15,11 +16,11 @@ class FastGPT:
         self.LOG = logging.getLogger("FastGPT")
         
         # 初始化HTTP客户端，设置较长的超时时间（2分钟）
-        timeout = httpx.Timeout(120.0, connect=20.0)  # 总超时120秒，连接超时20秒
+        self.timeout = httpx.Timeout(120.0, connect=20.0)  # 总超时120秒，连接超时20秒
         if self.proxy:
-            self.client = httpx.Client(proxies=self.proxy, timeout=timeout)
+            self.client = httpx.Client(proxies=self.proxy, timeout=self.timeout)
         else:
-            self.client = httpx.Client(timeout=timeout)
+            self.client = httpx.Client(timeout=self.timeout)
             
         self.conversation_list = {}
         self.system_content_msg = {"role": "system", "content": self.prompt} if self.prompt else None
@@ -49,21 +50,34 @@ class FastGPT:
                 "Content-Type": "application/json"
             }
             
+            # 准备消息列表，只发送最后一条用户消息
+            messages = [
+                {
+                    "content": question,
+                    "role": "user"
+                }
+            ]
+            
             payload = {
-                "chatId": wxid,  # wxid或者roomid,个人时为微信id，群消息时为群id
+                "chatId": wxid,
                 "stream": False,
                 "detail": False,
-                "messages": self.conversation_list[wxid]
+                "messages": messages
             }
             
             # 记录请求信息
             self.LOG.info(f"正在发送请求到 FastGPT API: {self.api_url}")
+            self.LOG.debug(f"请求负载: {json.dumps(payload, ensure_ascii=False)}")
             
+            # 使用与curl相同的请求格式
             response = self.client.post(
                 self.api_url,
                 headers=headers,
-                json=payload
+                data=json.dumps(payload),  # 使用data而不是content或json
+                timeout=self.timeout
             )
+            
+            self.LOG.debug(f"API响应: {response.text}")
             
             if response.status_code == 200:
                 result = response.json()
