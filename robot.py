@@ -16,6 +16,7 @@ from base.func_bard import BardAssistant
 from base.func_chatglm import ChatGLM
 from base.func_chatgpt import ChatGPT
 from base.func_chengyu import cy
+from base.func_fastgpt import FastGPT  # 添加FastGPT导入
 from base.func_news import News
 from base.func_tigerbot import TigerBot
 from base.func_xinghuo_web import XinghuoWeb
@@ -62,6 +63,8 @@ class Robot:
                 self.chat = ChatGLM(self.config.CHATGLM)
             elif chat_type == ChatType.BardAssistant.value and BardAssistant.value_check(self.config.BardAssistant):
                 self.chat = BardAssistant(self.config.BardAssistant)
+            elif chat_type == ChatType.FASTGPT.value and FastGPT.value_check(self.config.FASTGPT):
+                self.chat = FastGPT(self.config.FASTGPT)
             # elif chat_type == ChatType.ZhiPu.value and ZhiPu.value_check(self.config.ZhiPu):
             #     self.chat = ZhiPu(self.config.ZhiPu)
             else:
@@ -78,6 +81,8 @@ class Robot:
                 self.chat = ChatGLM(self.config.CHATGLM)
             elif BardAssistant.value_check(self.config.BardAssistant):
                 self.chat = BardAssistant(self.config.BardAssistant)
+            elif FastGPT.value_check(self.config.FASTGPT):
+                self.chat = FastGPT(self.config.FASTGPT)
             # elif ZhiPu.value_check(self.config.ZhiPu):
             #     self.chat = ZhiPu(self.config.ZhiPu)
             else:

@@ -37,6 +37,7 @@ class Config(object):
         self.CHATGLM = yconfig.get("chatglm", {})
         self.BardAssistant = yconfig.get("bard", {})
         self.ZhiPu = yconfig.get("zhipu", {})
+        self.FASTGPT = yconfig.get("fastgpt", {})
 
 # 添加别名兼容旧代码
 Configuration = Config
