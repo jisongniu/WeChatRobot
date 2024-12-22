@@ -10,7 +10,7 @@ import json
 class FastGPT:
     def __init__(self, conf: dict) -> None:
         self.api_key = conf.get("key")  # 格式应该是 fastgpt-xxx
-        self.api_url = conf.get("api", "http://localhost:3000/api/v1/chat/completions")  # 默认本地地址
+        self.api_url = conf.get("fastgpt", {}).get("api")  # 从config里的fastgpt获取
         self.proxy = conf.get("proxy")
         self.prompt = conf.get("prompt")
         self.LOG = logging.getLogger("FastGPT")
