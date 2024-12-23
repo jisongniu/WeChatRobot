@@ -30,4 +30,4 @@ class ChatType(IntEnum):
 # 好友请求自动通过相关常量
 MIN_ACCEPT_DELAY = 30  # 最小延迟时间(秒)
 MAX_ACCEPT_DELAY = 90  # 最大延迟时间(秒)
-FRIEND_WELCOME_MSG = "hey，如果你对加入社群感兴趣，请回复【入群】"
+FRIEND_WELCOME_MSG = "hey，我是肥肉，是ncc的团宠，欢迎加入ncc大家庭，后续我会在这里接入入群功能，请期待。\n我的知识库现在还在更新中，相当于3个月时候的肥肉，请期待。"
