@@ -126,7 +126,7 @@ class Robot:
 
     def toChengyu(self, msg: WxMsg) -> bool:
         """
-        处理成语查询/接龙���息
+        处理成语查询/接龙消息
         :param msg: 微信消息结构
         :return: 处理状态，`True` 成功，`False` 失败
         """
@@ -191,6 +191,10 @@ class Robot:
             
             # 检查被允许群聊里文字消息
             if msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01 and not msg.from_self():
+                # 添加调试日志
+                self.LOG.info(f"消息内容: {msg.content}")
+                self.LOG.info(f"是否被@: {msg.is_at(self.wxid)}")
+                self.LOG.info(f"机器人wxid: {self.wxid}")
 
                 # 类型1—— 被艾特或者以问：开头
                 if msg.is_at(self.wxid) or msg.content.startswith("问："):
