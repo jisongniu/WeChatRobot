@@ -150,26 +150,12 @@ class Robot:
                         status = True
 
         return status
-    
-    def toAt(self, msg: WxMsg) -> bool:
-        """处理被 @ 消息
-        :param msg: 微信消息结构
-        :return: 处理状态，`True` 成功，`False` 失败
-        """
-        return self.toAIchat(msg)
 
     def toAIchat(self, msg: WxMsg) -> bool:
         """AI模式
         """
         self.LOG.info("正在查询ai获取回复")
-        # 如果没有配置 ChatGPT，返回固定回复
-        if not self.chat:
-            rsp = self.toChitchat(msg)
-        else:  # 如果配置了 ChatGPT，通过 ChatGPT 生成回复
-            # 从消息内容中移除 @ 和空格，得到问题
-            q = re.sub(r"@.*?[\u2005|\s]", "", msg.content).replace(" ", "")
-            # 通过 ChatGPT 获取答案
-            rsp = self.chat.get_answer(q, (msg.roomid if msg.from_group() else msg.sender))
+        rsp = self.chat.get_answer(q, (msg.roomid if msg.from_group() else msg.sender))
 
         # 如果获取到了回复，发送回复
         if rsp:
@@ -180,29 +166,9 @@ class Robot:
                 self.sendTextMsg(rsp, msg.sender)
             return True  # 返回处理成功
         else:  # 如果没有获取到回复，记录错误日志
-            self.LOG.error(f"无法从 ChatGPT 获得答案")
+            self.LOG.error(f"无法从配置的LLm模型获得答案")
             return False  # 返回处理失败
         
-        
-    def toChitchat(self, msg: WxMsg) -> bool:
-        """
-        处理闲聊消息
-        :param msg: 微信消息结构
-        :return: 处理状态，`True` 成功，`False` 失败
-        """
-        rsp = None
-        if msg.content.startswith("问：") or msg.content.startswith("【问：】"):
-            # 移除前缀
-            msg.content = msg.content.replace("问：", "").replace("【问：】", "")
-            return self.toAIchat(msg)
-        else:
-            rsp = None  # 不回复
-            
-        if rsp:  # 只有在有响应时才发送
-            self.sendTextMsg(rsp, msg.roomid if msg.from_group() else msg.sender)
-            return True
-            
-        return False
         
 
     
@@ -222,29 +188,36 @@ class Robot:
                 self.sendTextMsg(result, msg.roomid if msg.from_group() else msg.sender)
                 return
             
-            # 检查普通消息中的肥肉关键词（不是@的情况）
+            # 检查被允许群聊里文字消息
             if msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01 and not msg.from_self():
-                # 移除所有@部分的内容后再检查是否包含"肥肉"
-                cleaned_content = re.sub(r"@.*?[\u2005|\s]", "", msg.content)
-                if "肥肉" in cleaned_content and not msg.is_at(self.wxid):
+
+                # 类型1—— 被艾特或者以问：开头
+                if msg.is_at(self.wxid) or msg.content.startswith("问："):
+                    self.LOG.info(f"在被允许的群聊中被艾特或被问，处理消息")  
+                    # 从消息内容中移除 @ 和空格，得到问题
+                    cleaned_content = re.sub(r"@.*?[\u2005|\s]", "", msg.content).replace(" ", "")
+                    # 移除前缀
+                    cleaned_content = cleaned_content.replace("问：", "")
+                    
+                    def process_ai_reply():
+                        # 通过 ai 获取答案
+                        self.toAIchat(cleaned_content)
+                        
+                    Thread(target=process_ai_reply, name="AIReply").start()
+                    return
+                
+                # 类型2—— 触发关键词肥肉
+                if "肥肉" in msg.content:
+                    self.LOG.info(f"触发关键词肥肉")  # 被@的或者问的
                     def delayed_msg():
                         # 先拍一拍
                         self.wcf.send_pat_msg(msg.roomid, msg.sender)
-                        # 延迟后送消息
-                        time.sleep(random.uniform(0.5, 1))  # 随机延迟0.5-1秒
-                        rsp = "哎呀？我听到有人在聊肥肉！我来了～"
-                        self.sendTextMsg(rsp, msg.roomid)
+                        # 然后调用 toai
+                        self.toAIchat(msg)
                         
                     Thread(target=delayed_msg, name="PatAndMsg").start()
                     return  # 处理完肥肉关键词就返回，不再处理其他逻辑
 
-            #被艾特或者被问：
-            if msg.is_at(self.wxid) or msg.content.startswith("问："):  # 被@的话
-                if msg.from_group() and msg.roomid not in self.allowed_groups:
-                    return  # 如果是群消息且群不在允许列表中，直接返回
-                self.toAt(msg)  # 否则处理消息
-                
-            # 非群聊信息，按消息类型进行处理
 
             # 好友请求,已经被 not implemented 了
             # if msg.type == 37:  
