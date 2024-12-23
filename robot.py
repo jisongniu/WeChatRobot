@@ -126,7 +126,7 @@ class Robot:
 
     def toChengyu(self, msg: WxMsg) -> bool:
         """
-        处理成语查询/接龙消息
+        处理成语查询/接龙���息
         :param msg: 微信消息结构
         :return: 处理状态，`True` 成功，`False` 失败
         """
@@ -155,12 +155,13 @@ class Robot:
         """AI模式
         """
         self.LOG.info("正在查询ai获取回复")
-        rsp = self.chat.get_answer(msg.content, (msg.roomid if msg.from_group() else msg.sender))
+        content = msg if isinstance(msg, str) else msg.content
+        rsp = self.chat.get_answer(content, (msg.roomid if isinstance(msg, WxMsg) and msg.from_group() else msg.sender))
 
         # 如果获取到了回复，发送回复
         if rsp:
             # 如果是群聊，发送回复到群聊，并 @ 发送者
-            if msg.from_group():
+            if isinstance(msg, WxMsg) and msg.from_group():
                 self.sendTextMsg(rsp, msg.roomid, msg.sender)
             else:  # 如果是私聊，直接发送回复
                 self.sendTextMsg(rsp, msg.sender)
@@ -201,14 +202,15 @@ class Robot:
                     
                     def process_ai_reply():
                         # 通过 ai 获取答案
-                        self.toAIchat(cleaned_content)
+                        msg.content = cleaned_content  # 修改msg.content为清理后的内容
+                        self.toAIchat(msg)
                         
                     Thread(target=process_ai_reply, name="AIReply").start()
                     return
                 
                 # 类型2—— 触发关键词肥肉
-                if "肥肉" in msg.content:
-                    self.LOG.info(f"触发关键词肥肉")  # 被@的或者问的
+                if "肥肉" in msg.content and not msg.is_at(self.wxid):
+                    self.LOG.info(f"触发关键词肥肉且没有被艾特")  # 被@的或者问的
                     def delayed_msg():
                         # 先拍一拍
                         self.wcf.send_pat_msg(msg.roomid, msg.sender)
@@ -216,8 +218,7 @@ class Robot:
                         self.toAIchat(msg)
                         
                     Thread(target=delayed_msg, name="PatAndMsg").start()
-                    return  # 处理完肥肉关键词就返回，不再处理其他逻辑
-
+                    return  # 处理完肥肉关键词且没有被艾特就返回，不再处理其他逻辑
             # 非群聊消息
             if not msg.from_group():
                 
