@@ -23,6 +23,12 @@ def main(chat_type: int):
 
     robot = Robot(config, wcf, chat_type)
     robot.LOG.info(f"WeChatRobot【{__version__}】成功启动···")
+    
+    # 添加AI模型提示
+    if robot.chat:
+        robot.LOG.info(f"当前使用的AI模型是：{robot.chat.__repr__()}")
+    else:
+        robot.LOG.warning("当前未配置任何AI模型")
 
     # 机器人启动发送测试消息
     robot.sendTextMsg("启动成功！", "filehelper")
