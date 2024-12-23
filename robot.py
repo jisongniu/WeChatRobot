@@ -155,13 +155,12 @@ class Robot:
         """AI模式
         """
         self.LOG.info("正在查询ai获取回复")
-        content = msg if isinstance(msg, str) else msg.content
-        rsp = self.chat.get_answer(content, (msg.roomid if isinstance(msg, WxMsg) and msg.from_group() else msg.sender))
+        rsp = self.chat.get_answer(msg.content, (msg.roomid if msg.from_group() else msg.sender))
 
         # 如果获取到了回复，发送回复
         if rsp:
             # 如果是群聊，发送回复到群聊，并 @ 发送者
-            if isinstance(msg, WxMsg) and msg.from_group():
+            if msg.from_group():
                 self.sendTextMsg(rsp, msg.roomid, msg.sender)
             else:  # 如果是私聊，直接发送回复
                 self.sendTextMsg(rsp, msg.sender)
@@ -197,7 +196,7 @@ class Robot:
                 self.LOG.info(f"机器人wxid: {self.wxid}")
 
                 # 类型1—— 被艾特或者以问：开头
-                if msg.is_at(self.wxid) or msg.content.startswith("问："):
+                if msg.content.startswith("@肥肉") or msg.is_at(self.wxid) or msg.content.startswith("问："):
                     self.LOG.info(f"在被允许的群聊中被艾特或被问，处理消息")  
                     # 从消息内容中移除 @ 和空格，得到问题
                     cleaned_content = re.sub(r"@.*?[\u2005|\s]", "", msg.content).replace(" ", "")
@@ -213,7 +212,7 @@ class Robot:
                     return
                 
                 # 类型2—— 触发关键词肥肉
-                if "肥肉" in msg.content and not msg.is_at(self.wxid):
+                if "肥肉" in msg.content and not msg.content.startswith("@肥肉") and not msg.is_at(self.wxid):
                     self.LOG.info(f"触发关键词肥肉且没有被艾特")  # 被@的或者问的
                     def delayed_msg():
                         # 先拍一拍
