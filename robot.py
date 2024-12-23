@@ -155,7 +155,7 @@ class Robot:
         """AI模式
         """
         self.LOG.info("正在查询ai获取回复")
-        rsp = self.chat.get_answer(q, (msg.roomid if msg.from_group() else msg.sender))
+        rsp = self.chat.get_answer(msg.content, (msg.roomid if msg.from_group() else msg.sender))
 
         # 如果获取到了回复，发送回复
         if rsp:
@@ -218,6 +218,18 @@ class Robot:
                     Thread(target=delayed_msg, name="PatAndMsg").start()
                     return  # 处理完肥肉关键词就返回，不再处理其他逻辑
 
+            # 非群聊消息
+            if not msg.from_group():
+                
+                # 类型1—— NCC 命令
+                # 获取各个操作者的状态  
+                operator_state = self.ncc_manager.operator_states.get(msg.sender)
+                # 如果消息内容是 ncc 或者操作者状态不是 Idle
+                if msg.content.lower() == "ncc" or (operator_state and operator_state.state != ForwardState.IDLE):
+                    # 处理 NCC 命令
+                    if self.ncc_manager.handle_message(msg):
+                        return
+                    
 
             # 好友请求,已经被 not implemented 了
             # if msg.type == 37:  
@@ -244,12 +256,7 @@ class Robot:
                     self.LOG.info("已更新")
                 return
 
-            # 处理 NCC 命令
-            if not msg.from_group():
-                operator_state = self.ncc_manager.operator_states.get(msg.sender)
-                if msg.content.lower() == "ncc" or (operator_state and operator_state.state != ForwardState.IDLE):
-                    if self.ncc_manager.handle_message(msg):
-                        return
+
 
         except Exception as e:
             self.LOG.error(f"消息处理异常: {e}")
