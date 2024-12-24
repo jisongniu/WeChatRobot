@@ -189,15 +189,13 @@ class NCCManager:
                         ))
                         print(f"forward_groups有这些：{forward_groups}")
                         if not forward_groups:
-                            self.sendTextMsg("未找到任何可转发的群组，退出管理模式", msg.sender)
-                            self._reset_operator_state(msg.sender)
+                            self.sendTextMsg("未找到任何可转发的群组，请重新选择，或发送【0】退出转发模式", msg.sender)
                             return True
                         groups = forward_groups
                     else:
                         groups = self.notion_manager.get_groups_by_list_id(list_id)
                         if not groups:
-                            self.sendTextMsg(f"未找到ID为 {list_id} 的列表或列表中没有有效的群组，退出管理模式", msg.sender)
-                            self._reset_operator_state(msg.sender)
+                            self.sendTextMsg(f"未找到ID为 {list_id} 的列表或列表中没有有效的群组，请重新选择，或发送【0】退出转发模式", msg.sender)
                             return True
                         
                     total_groups = len(groups)
@@ -207,8 +205,8 @@ class NCCManager:
                     
                     # 将转发任务添加到队列
                     self.forward_queue.put((operator_state.messages, groups, msg.sender))
+                    self._reset_operator_state(msg.sender)
                 
-                self._reset_operator_state(msg.sender)
                 return True
                 
             except ValueError:
