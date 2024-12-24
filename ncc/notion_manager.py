@@ -146,9 +146,10 @@ class NotionManager:
                     groups=[]
                 )
 
-            # 处理每个允许发言的群组
+            # 处理每个允许转发的群组
             for page in enabled_groups:
                 try:
+                    # 获取群名
                     name_array = page['properties'].get('群名', {}).get('title', [])
                     if not name_array:
                         continue
@@ -169,7 +170,7 @@ class NotionManager:
                     for relation in relations:
                         for list_data in cache_data['lists']:
                             if list_data['id'] == relation['id']:
-                                list_id = list_data['properties']['分组编号']['number']
+                                list_id = list_data['properties'].get('分组编号', {}).get('number')
                                 if list_id in lists:
                                     lists[list_id].groups.append({
                                         'group_name': group_name,
@@ -390,7 +391,7 @@ class NotionManager:
             # 从缓存中获取管理员数据
             admin_names = []
             for admin in cache_data.get('admins', []):
-                # 获取称呼属性（title类型）
+                # 获取称呼属性（title类��）
                 name = admin['properties'].get('称呼', {}).get('title', [])
                 if name:
                     admin_names.append(name[0]['text']['content'])

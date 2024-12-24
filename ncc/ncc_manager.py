@@ -145,7 +145,7 @@ class NCCManager:
                 # 遍历列表，筛选符合条件的群聊
                 for lst in lists:
                     response += f"{lst.list_id} 👈 {lst.list_name}\n"
-                # ��送群聊列表给发送者，以供选择
+                # 发送群聊列表给发送者，以供选择
                 self.sendTextMsg(response, msg.sender)
                 return True
             
@@ -181,11 +181,13 @@ class NCCManager:
                     if list_id == 1:  # 处理"所有群聊"选项
                         # 获取所有启用了转发的群组
                         lists = self.notion_manager.get_forward_lists_and_groups()
+                        print(f"lists有这些：{lists}")
                         forward_groups = list(set(
                             group['wxid'] for lst in lists 
                             for group in lst.groups 
                             if group.get('wxid')  # 确保只包含有效的 wxid
                         ))
+                        print(f"forward_groups有这些：{forward_groups}")
                         if not forward_groups:
                             self.sendTextMsg("未找到任何可转发的群组，退出管理模式", msg.sender)
                             self._reset_operator_state(msg.sender)
