@@ -99,15 +99,7 @@ class NCCManager:
 
         if operator_state.state == ForwardState.WAITING_CHOICE_MODE:
             if msg.content == "2":
-                # 处理刷新列表命令
-                logger.info("收到刷新列表命令")
-                # 尝试保存列表到本地
-                if self.notion_manager.fetch_notion_data():
-                    # 如果成功，则发送成功信息
-                    self.sendTextMsg("已刷新列表", msg.sender)
-                else:
-                    # 如果失败，则发送失败信息
-                    self.sendTextMsg("刷新列表失败", msg.sender)
+                self.notion_manager.update_notion_data()
                 # 发送菜单以供选择
                 self._send_menu(msg.sender)
                 return True
@@ -122,7 +114,7 @@ class NCCManager:
             elif msg.content == "4":
                 # 获取管理员昵称列表
                 admin_list = self.notion_manager.get_admins()
-                admin_name = "成员：\n" + "\n".join(f"👤 {admin}" for admin in admin_list)
+                admin_name = "成员：\n" + "\n".join(f"👤 {admin['称呼']['title'][0]['text']['content']}" for admin in admin_list)
                 self.sendTextMsg(admin_name, msg.sender)
                 return True
             else:

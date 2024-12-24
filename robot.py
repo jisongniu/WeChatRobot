@@ -51,6 +51,7 @@ class Robot:
         self.allContacts = self.getAllContacts()
         self.processed_msgs = set()  # 添加消息去重集合
         self.job_mgr = JobManager(wcf, self)
+
         # 选择模型
         if ChatType.is_in_chat_types(chat_type):
             if chat_type == ChatType.TIGER_BOT.value and TigerBot.value_check(self.config.TIGERBOT):
@@ -89,7 +90,6 @@ class Robot:
                 self.LOG.warning("未配置模型")
                 self.chat = None
 
-
         # 确保数据目录存在
         os.makedirs("data", exist_ok=True)
         
@@ -102,14 +102,9 @@ class Robot:
         )
         
         # 初始化时更新一次 Notion 数据
-        if self.notion_manager.fetch_notion_data():
-            self.LOG.info("成功从Notion获取信息，并缓存到本地")
-        else:
-            self.LOG.error("Notion数据保存本地失败")
-            
-        # 初始化时加载一次群组列表
+        self.notion_manager.update_notion_data()
+        # 初始化允许的群组列表
         self.allowed_groups = self.notion_manager.get_all_allowed_groups()
-        #self.LOG.info(f"初始化允许的群组: {self.allowed_groups}")
         
         self.ncc_manager = NCCManager(
             notion_manager=self.notion_manager,
@@ -120,14 +115,6 @@ class Robot:
         self.welcome_service = WelcomeService(wcf=self.wcf)
         # 加载群组配置
         self.welcome_service.load_groups_from_local()
-
-    @staticmethod
-    def value_check(args: dict) -> bool:
-        if args:
-            return all(value is not None for key, value in args.items() if key != 'proxy')
-        return False
-
-
 
     def toChengyu(self, msg: WxMsg) -> bool:
         """
@@ -155,6 +142,12 @@ class Robot:
                         status = True
 
         return status
+
+    @staticmethod
+    def value_check(args: dict) -> bool:
+        if args:
+            return all(value is not None for key, value in args.items() if key != 'proxy')
+        return False
 
     def toAIchat(self, msg: WxMsg) -> bool:
         """AI模式
@@ -305,7 +298,7 @@ class Robot:
             
             # 初始化@列表为空
             ats = ""
-            # 如果有@列表
+            # 如果���@列表
             if at_list:
                 # 如果@列表是"notify@all"，则@所有人
                 if at_list == "notify@all":

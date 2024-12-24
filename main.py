@@ -41,6 +41,6 @@ def main(chat_type: int):
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument('-c', type=int, default=0, help=f'选择模型参数序号: {ChatType.help_hint()}')
+    parser.add_argument('-c', type=int, default=7, help=f'选择模型参数序号: {ChatType.help_hint()}') #默认使用7号模型，FastGPT
     args = parser.parse_args()
     main(args.c)

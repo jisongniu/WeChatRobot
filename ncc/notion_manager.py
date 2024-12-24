@@ -356,6 +356,26 @@ class NotionManager:
             logger.error(f"获取管理员列表失败: {e}")
             return []
 
+    def update_notion_data(self) -> bool:
+        """更新 Notion 数据并刷新相关运行时数据"""
+        try:
+            # 从 Notion 获取最新数据
+            if not self.fetch_notion_data():
+                logger.error("从 Notion 获取数据失败")
+                return False
+                
+            # 更新允许的群组列表
+            self.allowed_groups = self.get_all_allowed_groups()
+            # 更新管理员列表
+            self.admins = self.get_admins()
+            
+            logger.info(f"已更新 Notion 数据到机器人中")
+            return True
+            
+        except Exception as e:
+            logger.error(f"更新 Notion 数据失败: {e}")
+            return False
+
 
 
 
