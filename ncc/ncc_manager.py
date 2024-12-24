@@ -112,10 +112,10 @@ class NCCManager:
                 self.sendTextMsg("列表信息，请登陆查看：https://www.notion.so/bigsong/NCC-1564e93f5682805d9a2ff0519c24738b?pvs=4", msg.sender)
                 return True
             elif msg.content == "4":
-                # 获取管理员昵称列表
-                admin_list = self.notion_manager.get_admins()
-                admin_name = "成员：\n" + "\n".join(f"👤 {admin['称呼']['title'][0]['text']['content']}" for admin in admin_list)
-                self.sendTextMsg(admin_name, msg.sender)
+                # 获取管理员称呼列表
+                admin_names = self.notion_manager.get_admins()
+                admin_list = "成员：\n" + "\n".join(f"👤 {name}" for name in admin_names)
+                self.sendTextMsg(admin_list, msg.sender)
                 return True
             else:
                 self.sendTextMsg("请输入有效的选项，或发送【0】退出转发模式", msg.sender)
@@ -162,7 +162,7 @@ class NCCManager:
                 self.sendTextMsg(f"已收集 {len(operator_state.messages)} 条消息，继续发送或者：选择群聊", msg.sender)
                 
             except TimeoutError:
-                logger.error("图片下载超时")
+                logger.error("图片下载超��")
                 self.sendTextMsg("图片下载超时，请稍后重试", msg.sender)
             except Exception as e:
                 logger.error(f"消息收集失败: {e}", exc_info=True)  # 添加完整的异常堆栈

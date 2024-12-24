@@ -329,7 +329,7 @@ class NotionManager:
             return {}
 
     def get_admins(self) -> List[str]:
-        """获取所有管理员的wxid列表"""
+        """获取所有管理员的称呼列表"""
         try:
             # 检查并加载缓存数据
             if not os.path.exists(self.local_data_path):
@@ -342,15 +342,14 @@ class NotionManager:
                 cache_data = json.load(f)
             
             # 从缓存中获取管理员数据
-            admin_wxids = []
+            admin_names = []
             for admin in cache_data.get('admins', []):
-                # 获取wxid属性
-                wxid_texts = admin['properties'].get('wxid', {}).get('rich_text', [])
-                if wxid_texts:
-                    wxid = wxid_texts[0]['text']['content']
-                    admin_wxids.append(wxid)
+                # 获取称呼属性（title类型）
+                name = admin['properties'].get('称呼', {}).get('title', [])
+                if name:
+                    admin_names.append(name[0]['text']['content'])
             
-            return admin_wxids
+            return admin_names
             
         except Exception as e:
             logger.error(f"获取管理员列表失败: {e}")
