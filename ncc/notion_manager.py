@@ -394,7 +394,7 @@ class NotionManager:
             # 更新允许的群组列表
             self.allowed_groups = self.get_all_allowed_groups()
             # 更新管理员列表
-            self.admins = self.get_admins()
+            self.admins = self.get_admins_wxid()
             
             logger.info(f"已更新 Notion 数据到机器人中")
             return True
