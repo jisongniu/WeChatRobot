@@ -33,9 +33,8 @@ class OperatorState:
             self.messages = []
 
 class NCCManager:
-    def __init__(self, notion_manager: NotionManager, config: Config, wcf):
+    def __init__(self, notion_manager: NotionManager, wcf):
         self.notion_manager = notion_manager
-        self.forward_admin = config.FORWARD_ADMINS
         self.wcf = wcf
         self.images_dir = os.path.join(os.path.dirname(__file__), "ncc_images")
         if not os.path.exists(self.images_dir):
@@ -70,10 +69,11 @@ class NCCManager:
     def handle_message(self, msg) -> bool:
         """统一处理所有NCC相关消息"""
         # 添加调试日志
-        logger.info(f"handle_message 收到消息: type={msg.type}, content={msg.content}")
+        #logger.info(f"handle_message 收到消息: type={msg.type}, content={msg.content}")
         
         if msg.content.lower() == "ncc":
-            if msg.sender in self.forward_admin:
+            admin_wxids = self.notion_manager.get_admins()
+            if msg.sender in admin_wxids:
                 operator_state = self._get_operator_state(msg.sender)
                 operator_state.state = ForwardState.WAITING_CHOICE_MODE
                 self._send_menu(msg.sender)
@@ -121,12 +121,9 @@ class NCCManager:
                 return True
             elif msg.content == "4":
                 # 获取管理员昵称列表
-                admin_names = []
-                for admin_id in self.forward_admin:
-                    nickname = self.wcf.get_info_by_wxid(admin_id).get('name', admin_id)
-                    admin_names.append(nickname)
-                admin_list = "成员：\n" + "\n".join(f"👤 {name}" for name in admin_names)
-                self.sendTextMsg(admin_list, msg.sender)
+                admin_list = self.notion_manager.get_admins()
+                admin_name = "成员：\n" + "\n".join(f"👤 {admin}" for admin in admin_list)
+                self.sendTextMsg(admin_name, msg.sender)
                 return True
             else:
                 self.sendTextMsg("请输入有效的选项，或发送【0】退出转发模式", msg.sender)
@@ -135,7 +132,7 @@ class NCCManager:
         #信息收集阶段
         elif operator_state.state == ForwardState.WAITING_MESSAGE:
             # 添加调试日志
-            logger.info(f"收到消息，类型: {msg.type}, 内容: {msg.content}")
+            logger.debug(f"收到消息，类型: {msg.type}, 内容: {msg.content}")
             
             if msg.content == "选择群聊":
                 if not operator_state.messages:
