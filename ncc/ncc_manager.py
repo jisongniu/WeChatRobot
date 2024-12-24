@@ -139,9 +139,9 @@ class NCCManager:
                     self._reset_operator_state(msg.sender)
                     return True
                     
-                response = f"已收集 {len(operator_state.messages)} 条消息\n请选择想要转发的分组编号：\n"
+                response = f"已收集 {len(operator_state.messages)} 条消息\n请选择想要转发的分组编号，按0退出：\n"
                 # 添加"所有群聊"选项
-                response += f"0 👈 所有群聊\n"
+                response += f"1 👈 所有群聊\n"
                 # 遍历列表，筛选符合条件的群聊
                 for lst in lists:
                     response += f"{lst.list_id} 👈 {lst.list_name}\n"
