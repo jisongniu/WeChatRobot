@@ -27,10 +27,14 @@ class Config(object):
     def reload(self) -> None:
         yconfig = self._load_config()
         logging.config.dictConfig(yconfig["logging"])
-        self.NOTION = yconfig["NOTION"]
+        self.NOTION = {
+            "token": yconfig["NOTION"]["token"],
+            "lists_db_id": yconfig["NOTION"]["lists_db_id"],
+            "groups_db_id": yconfig["NOTION"]["groups_db_id"],
+            "admins_db_id": yconfig["NOTION"]["admins_db_id"]
+        }
         self.NEWS = yconfig["news"]["receivers"]
         self.REPORT_REMINDER = yconfig["report_reminder"]["receivers"]
-        self.FORWARD_ADMINS = yconfig.get("FORWARD_ADMINS", [])
         self.CHATGPT = yconfig.get("chatgpt", {})
         self.TIGERBOT = yconfig.get("tigerbot", {})
         self.XINGHUO_WEB = yconfig.get("xinghuo_web", {})

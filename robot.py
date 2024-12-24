@@ -94,9 +94,10 @@ class Robot:
         os.makedirs("data", exist_ok=True)
         
         self.notion_manager = NotionManager(
-            token=self.config.NOTION['TOKEN'],
-            lists_db_id=self.config.NOTION['LISTS_DB_ID'],
-            groups_db_id=self.config.NOTION['GROUPS_DB_ID'],
+            token=config.NOTION["token"],
+            lists_db_id=config.NOTION["LISTS_DB_ID"],
+            groups_db_id=config.NOTION["GROUPS_DB_ID"],
+            admins_db_id=config.NOTION["ADMINS_DB_ID"],
             wcf=self.wcf
         )
         # 初始化时加载一次群组列表
@@ -105,7 +106,6 @@ class Robot:
         
         self.ncc_manager = NCCManager(
             notion_manager=self.notion_manager,
-            config=self.config,
             wcf=self.wcf
         )
         
@@ -113,8 +113,6 @@ class Robot:
         self.welcome_service = WelcomeService(wcf=self.wcf)
         # 加载群组配置
         self.welcome_service.load_groups_from_local()
-        
-        self.forward_admin = config.FORWARD_ADMINS
 
     @staticmethod
     def value_check(args: dict) -> bool:
@@ -190,11 +188,6 @@ class Robot:
             
             # 检查被允许群聊里文字消息
             if msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01 and not msg.from_self():
-                # 添加调试日志
-                self.LOG.info(f"消息内容: {msg.content}")
-                self.LOG.info(f"是否被@: {msg.is_at(self.wxid)}")
-                self.LOG.info(f"机器人wxid: {self.wxid}")
-
                 # 类型1—— 被艾特或者以问：开头
                 if msg.content.startswith("@肥肉") or msg.is_at(self.wxid) or msg.content.startswith("问："):
                     self.LOG.info(f"在被允许的群聊中被艾特或被问，处理消息")  

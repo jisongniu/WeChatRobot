@@ -38,10 +38,11 @@ class ForwardList:
     groups: List[Dict[str, str]]
 
 class NotionManager:
-    def __init__(self, token: str, lists_db_id: str, groups_db_id: str, wcf=None):
+    def __init__(self, token: str, lists_db_id: str, groups_db_id: str, admins_db_id: str, wcf=None):
         self.notion = Client(auth=token)
         self.lists_db_id = lists_db_id
         self.groups_db_id = groups_db_id
+        self.admins_db_id = admins_db_id
         self.wcf = wcf
         self.local_data_path = "data/notion_cache.json"
         self.welcome_groups = {}  # {group_wxid: welcome_url}
@@ -64,12 +65,18 @@ class NotionManager:
             groups_response = self.notion.databases.query(
                 database_id=self.groups_db_id
             )
+
+            # 获取所有管理员数据
+            admins_response = self.notion.databases.query(
+                database_id=self.admins_db_id
+            )
             
             # 保存原始数据到本地
             cache_data = {
                 "last_updated": datetime.now().isoformat(),
                 "lists": lists_response['results'],
-                "groups": groups_response['results']
+                "groups": groups_response['results'],
+                "admins": admins_response['results']
             }
             
             with open(self.local_data_path, 'w', encoding='utf-8') as f:
@@ -320,6 +327,34 @@ class NotionManager:
         except Exception as e:
             logger.error(f"获取群组信息失败: {e}")
             return {}
+
+    def get_admins(self) -> List[str]:
+        """获取所有管理员的wxid列表"""
+        try:
+            # 检查并加载缓存数据
+            if not os.path.exists(self.local_data_path):
+                logger.warning("本地缓存不存在，尝试从 Notion 获取数据...")
+                if not self.fetch_notion_data():
+                    return []
+            
+            # 读取缓存数据
+            with open(self.local_data_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
+            # 从缓存中获取管理员数据
+            admin_wxids = []
+            for admin in cache_data.get('admins', []):
+                # 获取wxid属性
+                wxid_texts = admin['properties'].get('wxid', {}).get('rich_text', [])
+                if wxid_texts:
+                    wxid = wxid_texts[0]['text']['content']
+                    admin_wxids.append(wxid)
+            
+            return admin_wxids
+            
+        except Exception as e:
+            logger.error(f"获取管理员列表失败: {e}")
+            return []
 
 
 
