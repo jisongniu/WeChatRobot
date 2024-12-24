@@ -89,7 +89,7 @@ class NotionManager:
             logger.error(f"获取 Notion 数据失败: {e}", exc_info=True)
             return False
 
-    def get_all_lists_and_groups(self) -> List[ForwardList]:
+    def get_forward_lists_and_groups(self) -> List[ForwardList]:
         """获取所有转发列表及其群组"""
         try:
             # 检查并加载缓存数据
@@ -111,10 +111,10 @@ class NotionManager:
             ]
             logger.info(f"获取到 {len(enabled_lists)} 个启用的转发列表")
             
-            # 从缓存中筛选允许发言的群组
+            # 从缓存中筛选允许转发的群组（使用是否转发属性）
             enabled_groups = [
                 page for page in cache_data['groups']
-                if page['properties'].get('允许发言', {}).get('checkbox', False)
+                if page['properties'].get('是否转发', {}).get('checkbox', False)
             ]
 
             # 3. 构建群组 wxid 映射（如果有 wcf）
@@ -196,7 +196,7 @@ class NotionManager:
             self.notion.pages.update(
                 page_id=page_id,
                 properties={
-                    "group_wxid": {  # Notion 中需要有这个属性
+                    "group_wxid": { 
                         "rich_text": [{
                             "text": {
                                 "content": wxid
@@ -237,7 +237,7 @@ class NotionManager:
             # 从缓存中筛选允许发言的群组
             allowed_groups = []
             for page in cache_data.get('groups', []):
-                # 检查是否允许发言
+                # 检查是否允许发言（非转发场景）
                 if not page['properties'].get('允许发言', {}).get('checkbox', False):
                     continue
                 
@@ -246,7 +246,7 @@ class NotionManager:
                 if not group_name:
                     continue
                     
-                # 先尝试从缓存获取 wxid
+                # 先试从缓存获取 wxid
                 wxid_texts = page['properties'].get('group_wxid', {}).get('rich_text', [])
                 wxid = wxid_texts[0]['text']['content'] if wxid_texts else None
                 
@@ -287,7 +287,7 @@ class NotionManager:
     def get_groups_by_list_id(self, list_id: int) -> List[str]:
         """根据列表ID获取该列表下可转发到的群组wxid列表"""
         try:
-            forward_lists = self.get_all_lists_and_groups()
+            forward_lists = self.get_forward_lists_and_groups()
             for lst in forward_lists:
                 if lst.list_id == list_id:
                     return [
@@ -301,7 +301,7 @@ class NotionManager:
             return []
 
     def get_groups_info(self) -> Dict[str, str]:
-        """获取群名到群ID的映射
+        """获取群名到群ID的映射，包括所有可用（可转发或可发言）的群组
         Returns:
             Dict[str, str]: {群名: 群ID}
         """
@@ -312,13 +312,31 @@ class NotionManager:
                 
             # 获取数据
             groups = {}
-            lists = self.get_all_lists_and_groups()
-            for lst in lists:
-                for group in lst.groups:
-                    name = group.get('group_name')
-                    wxid = group.get('wxid')
-                    if name and wxid:
-                        groups[name] = wxid
+            
+            # 读取缓存数据
+            with open(self.local_data_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
+
+            # 从缓存中获取所有群组
+            for page in cache_data.get('groups', []):
+                # 检查是否允许发言或转发
+                if not (page['properties'].get('允许发言', {}).get('checkbox', False) or 
+                       page['properties'].get('是否转发', {}).get('checkbox', False)):
+                    continue
+                
+                # 获取群名
+                group_name = page['properties'].get('群名', {}).get('title', [{}])[0].get('text', {}).get('content', '')
+                if not group_name:
+                    continue
+                    
+                # 获取 wxid
+                wxid_texts = page['properties'].get('group_wxid', {}).get('rich_text', [])
+                wxid = wxid_texts[0]['text']['content'] if wxid_texts else None
+
+                
+                if group_name and wxid:
+                    groups[group_name] = wxid
                         
             # 保存缓存
             self._groups_cache = groups

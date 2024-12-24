@@ -59,7 +59,7 @@ class NCCManager:
             "NCC社群管理：\n"
             "请回复指定数字\n"
             "1 👈 转发消息\n"
-            "2 👈 刷新群聊列表\n"
+            "2 👈 同步 Notion 更改\n"
             "3 👈 查看群聊列表信息\n"
             "4 👈 查看团队成员\n"
             "0 👈 退出管理模式"
@@ -132,13 +132,15 @@ class NCCManager:
                     return True
                 
                 operator_state.state = ForwardState.WAITING_CHOICE
-                lists = self.notion_manager.get_all_lists_and_groups()
+                lists = self.notion_manager.get_forward_lists_and_groups()
                 if not lists:
                     self.sendTextMsg("未找到可用的转发列表，请先使用【刷新列表】更新数据", msg.sender)
                     self._reset_operator_state(msg.sender)
                     return True
                     
                 response = f"已收集 {len(operator_state.messages)} 条消息\n请选择想要转发的分组编号：\n"
+                # 添加"所有群聊"选项
+                response += f"0 👈 所有群聊\n"
                 # 遍历列表，筛选符合条件的群聊
                 for lst in lists:
                     response += f"{lst.list_id} 👈 {lst.list_name}\n"
@@ -174,7 +176,17 @@ class NCCManager:
             try:
                 list_id = int(msg.content)
                 if operator_state.messages:
-                    groups = self.notion_manager.get_groups_by_list_id(list_id)
+                    groups = []
+                    if list_id == 0:  # 处理"所有群聊"选项
+                        # 获取所有启用了转发的群组
+                        lists = self.notion_manager.get_forward_lists_and_groups()
+                        # 收集所有群组的 wxid，使用集合去重
+                        groups = list(set(
+                            group['wxid'] for lst in lists for group in lst.groups
+                        ))
+                    else:
+                        groups = self.notion_manager.get_groups_by_list_id(list_id)
+                        
                     if not groups:
                         self.sendTextMsg(f"未找到ID为 {list_id} 的列表或列表中没有有效的群组，退出管理模式", msg.sender)
                         self._reset_operator_state(msg.sender)
