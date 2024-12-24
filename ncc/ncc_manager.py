@@ -101,6 +101,7 @@ class NCCManager:
             if msg.content == "2":
                 self.notion_manager.update_notion_data()
                 # 发送菜单以供选择
+                self.sendTextMsg("同步成功，请选择操作", msg.sender)
                 self._send_menu(msg.sender)
                 return True
             elif msg.content == "1":
@@ -177,7 +178,7 @@ class NCCManager:
                 list_id = int(msg.content)
                 if operator_state.messages:
                     groups = []
-                    if list_id == 0:  # 处理"所有群聊"选项
+                    if list_id == 1:  # 处理"所有群聊"选项
                         # 获取所有启用了转发的群组
                         lists = self.notion_manager.get_forward_lists_and_groups()
                         # 收集所有群组的 wxid，使用集合去重
