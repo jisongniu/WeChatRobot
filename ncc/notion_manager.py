@@ -328,8 +328,36 @@ class NotionManager:
             logger.error(f"获取群组信息失败: {e}")
             return {}
 
-    def get_admins(self) -> List[str]:
-        """获取所有管理员的称呼列表"""
+    def get_admins_wxid(self) -> List[str]:
+        """获取所有管理员的wxid列表（用于权限验证）"""
+        try:
+            # 检查并加载缓存数据
+            if not os.path.exists(self.local_data_path):
+                logger.warning("本地缓存不存在，尝试从 Notion 获取数据...")
+                if not self.fetch_notion_data():
+                    return []
+            
+            # 读取缓存数据
+            with open(self.local_data_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
+            # 从缓存中获取管理员数据
+            admin_wxids = []
+            for admin in cache_data.get('admins', []):
+                # 获取wxid属性
+                wxid_texts = admin['properties'].get('wxid', {}).get('rich_text', [])
+                if wxid_texts:
+                    wxid = wxid_texts[0]['text']['content']
+                    admin_wxids.append(wxid)
+            
+            return admin_wxids
+            
+        except Exception as e:
+            logger.error(f"获取管理员列表失败: {e}")
+            return []
+
+    def get_admin_names(self) -> List[str]:
+        """获取所有管理员的称呼列表（用于显示）"""
         try:
             # 检查并加载缓存数据
             if not os.path.exists(self.local_data_path):
@@ -352,7 +380,7 @@ class NotionManager:
             return admin_names
             
         except Exception as e:
-            logger.error(f"获取管理员列表失败: {e}")
+            logger.error(f"获取管理员称呼列表失败: {e}")
             return []
 
     def update_notion_data(self) -> bool:

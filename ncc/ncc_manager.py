@@ -72,7 +72,7 @@ class NCCManager:
         #logger.info(f"handle_message 收到消息: type={msg.type}, content={msg.content}")
         
         if msg.content.lower() == "ncc":
-            admin_wxids = self.notion_manager.get_admins()
+            admin_wxids = self.notion_manager.get_admins_wxid()
             if msg.sender in admin_wxids:
                 operator_state = self._get_operator_state(msg.sender)
                 operator_state.state = ForwardState.WAITING_CHOICE_MODE
@@ -113,7 +113,7 @@ class NCCManager:
                 return True
             elif msg.content == "4":
                 # 获取管理员称呼列表
-                admin_names = self.notion_manager.get_admins()
+                admin_names = self.notion_manager.get_admin_names()
                 admin_list = "成员：\n" + "\n".join(f"👤 {name}" for name in admin_names)
                 self.sendTextMsg(admin_list, msg.sender)
                 return True
@@ -162,7 +162,7 @@ class NCCManager:
                 self.sendTextMsg(f"已收集 {len(operator_state.messages)} 条消息，继续发送或者：选择群聊", msg.sender)
                 
             except TimeoutError:
-                logger.error("图片下载超��")
+                logger.error("图片下载超时")
                 self.sendTextMsg("图片下载超时，请稍后重试", msg.sender)
             except Exception as e:
                 logger.error(f"消息收集失败: {e}", exc_info=True)  # 添加完整的异常堆栈
