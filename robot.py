@@ -126,7 +126,7 @@ class Robot:
 
     def toChengyu(self, msg: WxMsg) -> bool:
         """
-        处理成语查询/接龙消息
+        处理成语查询/接龙���息
         :param msg: 微信消息结构
         :return: 处理状态，`True` 成功，`False` 失败
         """
@@ -274,9 +274,6 @@ class Robot:
 
         return 0
 
-    def enableRecvMsg(self) -> None:
-        self.wcf.enable_recv_msg(self.onMsg)
-
     def enableReceivingMsg(self) -> None:
         def innerProcessMsg(wcf: Wcf):
             while wcf.is_receiving_msg():
@@ -398,90 +395,6 @@ class Robot:
             except:
                 pass
 
-    def handle_friend_request(self, msg):
-        """处理好友请求"""
-        try:
-            # 构造消息ID并检查是否处理过
-            msg_id = f"{msg.type}_{msg.id}_{msg.ts}"
-            if msg_id in self.processed_msgs:
-                self.LOG.info(f"好友请求已处理过，跳过: {msg_id}")
-                return
-            
-            # 添加到已处理集合（提前添加防止并发）
-            self.processed_msgs.add(msg_id)
-            
-            # 解析消息内容
-            xml_content = msg.content
-            self.LOG.info(f"收到新好友请求: {xml_content}")
-            
-            # 提取验证信息
-            v3_match = re.search(r'encryptusername="([^"]*)"', xml_content)
-            v4_match = re.search(r'ticket="([^"]*)"', xml_content)
-            scene_match = re.search(r'scene="(\d+)"', xml_content)
-            
-            if not (v3_match and v4_match and scene_match):
-                self.LOG.error("无法从消息中提取必要的验证信息")
-                return
-            
-            v3 = v3_match.group(1)
-            v4 = v4_match.group(1)
-            scene = int(scene_match.group(1))
-            
-            def delayed_accept():
-                try:
-                    delay = random.randint(MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY)
-                    self.LOG.info(f"将在{delay}秒后通过好友请求")
-                    time.sleep(delay)
-                    
-                    result = self.wcf.accept_new_friend(v3, v4, scene)
-                    self.LOG.info(f"通过好友请求结果: {result}")
-                    
-                    if result == 1:
-                        self.LOG.info("好友请求通过成功")
-                    else:
-                        self.LOG.warning(f"好友请求通过失败，返回值: {result}")
-                    
-                except Exception as e:
-                    self.LOG.error(f"处理好友请求失败：{e}", exc_info=True)
-                    self.LOG.debug(f"处理好友请求失败的详细信息: {e}")
-            
-            Thread(target=delayed_accept, name="AcceptFriend").start()
-                
-        except Exception as e:
-            self.LOG.error(f"处理好友请求主流程异常：{e}", exc_info=True)
-
-    def accept_friend_request(self, msg):
-        """通过好友请求"""
-        try:
-            self.LOG.info(f"处理好友请求消息: {msg.content}")
-            
-            # 使用正则表达式提取 v3 和 v4
-            v3_match = re.search(r'encryptusername="([^"]*)"', msg.content)
-            v4_match = re.search(r'ticket="([^"]*)"', msg.content)
-            scene_match = re.search(r'scene="(\d+)"', msg.content)
-            
-            if not (v3_match and v4_match):
-                self.LOG.error("无法从消息中提取必要的验证信息")
-                self.LOG.debug(f"消息内容: {msg.content}")
-                return
-            
-            v3 = v3_match.group(1)
-            v4 = v4_match.group(1)
-            scene = int(scene_match.group(1)) if scene_match else 30  # 如果没有scene，默认使用30
-            
-            self.LOG.info(f"提取的验证信息: v3={v3}, v4={v4}, scene={scene}")
-            
-            # 调用 wcf 的接口通过好友请求
-            result = self.wcf.accept_new_friend(v3, v4, scene)
-            
-            if result == 1:
-                self.LOG.info("已成功通过好友请求")
-            else:
-                self.LOG.error(f"通过好友请求失败，返回值: {result}")
-            
-        except Exception as e:
-            self.LOG.error(f"处理好友请求异常: {e}", exc_info=True)
-    
     def get_friend_by_wxid(self, wxid):
         """根据wxid获取好友信息
         Args:

@@ -10,6 +10,8 @@ from wcferry import WxMsg
 from threading import Lock
 from datetime import datetime, timedelta
 from dataclasses import dataclass
+from queue import Queue
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,11 @@ class NCCManager:
             os.makedirs(self.images_dir)
         self.image_lock = Lock()
         self.operator_states: Dict[str, OperatorState] = {}  # 每个操作者的状态
+        
+        # 添加消息队列和处理线程
+        self.forward_queue = Queue()
+        self.forward_thread = threading.Thread(target=self._process_forward_queue, daemon=True)
+        self.forward_thread.start()
 
     def _get_operator_state(self, operator_id: str) -> OperatorState:
         """获取操作者的状态，如果不存在则创建"""
@@ -187,22 +194,10 @@ class NCCManager:
                     total_groups = len(groups)
                     total_messages = len(operator_state.messages)
                     
-                    self.sendTextMsg(f"开始转发 {total_messages} 条消息到 {total_groups} 个群...", msg.sender)
+                    self.sendTextMsg(f"开始转发 {total_messages} 条消息到 {total_groups} 个群...\n为避免风控，将会添加随机延迟，请耐心等待...", msg.sender)
                     
-                    success_count = 0
-                    failed_count = 0
-                    
-                    for group in groups:
-                        for fwd_msg in operator_state.messages:
-                            if self._forward_message(fwd_msg, group):
-                                success_count += 1
-                            else:
-                                failed_count += 1
-                            time.sleep(random.uniform(0.5, 1))
-                        time.sleep(random.uniform(1, 2))
-                    
-                    status = f"转发完成！\n成功：{success_count} 条\n失败：{failed_count} 条\n总计：{total_messages} 条消息到 {total_groups} 个群"
-                    self.sendTextMsg(status, msg.sender)
+                    # 将转发任务添加到队列
+                    self.forward_queue.put((operator_state.messages, groups, msg.sender))
                 
                 self._reset_operator_state(msg.sender)
                 return True
@@ -241,5 +236,51 @@ class NCCManager:
     def sendTextMsg(self, msg: str, receiver: str) -> None:
         """发送文本消息"""
         self.wcf.send_text(msg, receiver)
+
+    def _process_forward_queue(self):
+        """处理转发队列的后台线程"""
+        while True:
+            try:
+                # 从队列获取转发任务
+                task = self.forward_queue.get()
+                if task is None:
+                    continue
+                    
+                messages, groups, operator_id = task
+                total_groups = len(groups)
+                total_messages = len(messages)
+                
+                success_count = 0
+                failed_count = 0
+                
+                # 为每个群添加随机延迟
+                for i, group in enumerate(groups):
+                    # 每个群之间的基础延迟3-5秒
+                    group_delay = random.uniform(3, 5)
+                    
+                    # 每10个群增加额外延迟5-10秒，避免频繁发送
+                    if i > 0 and i % 10 == 0:
+                        extra_delay = random.uniform(5, 10)
+                        time.sleep(extra_delay)
+                        
+                    for msg in messages:
+                        if self._forward_message(msg, group):
+                            success_count += 1
+                        else:
+                            failed_count += 1
+                        # 每条消息间隔1-2秒
+                        time.sleep(random.uniform(1, 2))
+                    
+                    time.sleep(group_delay)
+                    
+                
+                # 发送最终结果
+                status = f"转发完成！\n成功：{success_count} 条\n失败：{failed_count} 条\n总计：{total_messages} 条消息到 {total_groups} 个群"
+                self.sendTextMsg(status, operator_id)
+                
+            except Exception as e:
+                logging.error(f"处理转发队列时出错: {e}")
+            finally:
+                self.forward_queue.task_done()
 
     
