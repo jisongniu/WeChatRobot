@@ -100,9 +100,16 @@ class Robot:
             admins_db_id=config.NOTION["ADMINS_DB_ID"],
             wcf=self.wcf
         )
+        
+        # 初始化时更新一次 Notion 数据
+        if self.notion_manager.fetch_notion_data():
+            self.LOG.info("成功从Notion获取信息，并缓存到本地")
+        else:
+            self.LOG.error("Notion数据保存本地失败")
+            
         # 初始化时加载一次群组列表
         self.allowed_groups = self.notion_manager.get_all_allowed_groups()
-        self.LOG.info(f"初始化允许的群组: {self.allowed_groups}")
+        #self.LOG.info(f"初始化允许的群组: {self.allowed_groups}")
         
         self.ncc_manager = NCCManager(
             notion_manager=self.notion_manager,
