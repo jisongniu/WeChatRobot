@@ -94,7 +94,7 @@ class Robot:
         os.makedirs("data", exist_ok=True)
         
         self.notion_manager = NotionManager(
-            token=config.NOTION["token"],
+            token=config.NOTION["TOKEN"],
             lists_db_id=config.NOTION["LISTS_DB_ID"],
             groups_db_id=config.NOTION["GROUPS_DB_ID"],
             admins_db_id=config.NOTION["ADMINS_DB_ID"],
