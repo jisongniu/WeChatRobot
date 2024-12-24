@@ -28,10 +28,10 @@ class Config(object):
         yconfig = self._load_config()
         logging.config.dictConfig(yconfig["logging"])
         self.NOTION = {
-            "TOKEN": yconfig["NOTION"]["token"],
-            "LISTS_DB_ID": yconfig["NOTION"]["lists_db_id"],
-            "GROUPS_DB_ID": yconfig["NOTION"]["groups_db_id"],
-            "ADMINS_DB_ID": yconfig["NOTION"]["admins_db_id"]
+            "TOKEN": yconfig["NOTION"]["TOKEN"],
+            "LISTS_DB_ID": yconfig["NOTION"]["LISTS_DB_ID"],
+            "GROUPS_DB_ID": yconfig["NOTION"]["GROUPS_DB_ID"],
+            "ADMINS_DB_ID": yconfig["NOTION"]["ADMINS_DB_ID"]
         }
         self.NEWS = yconfig["news"]["receivers"]
         self.REPORT_REMINDER = yconfig["report_reminder"]["receivers"]
