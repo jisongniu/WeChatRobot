@@ -28,6 +28,7 @@ from ncc.ncc_manager import NCCManager, ForwardState
 from ncc.welcome_service import WelcomeService  # 添加导入
 import random  
 import os
+from base.func_music import MusicService
 
 __version__ = "39.3.3.2"
 
@@ -51,6 +52,7 @@ class Robot:
         self.allContacts = self.getAllContacts()
         self.processed_msgs = set()  # 添加消息去重集合
         self.job_mgr = JobManager(wcf, self)
+        self.music_service = MusicService(wcf)  # 初始化音乐服务
 
         # 选择模型
         if ChatType.is_in_chat_types(chat_type):
@@ -215,6 +217,13 @@ class Robot:
                         
                     Thread(target=delayed_msg, name="PatAndMsg").start()
                     return  # 处理完肥肉关键词且没有被艾特就返回，不再处理其他逻辑
+                
+                # 类型3—— 触发关键词点歌
+                if "点歌" in msg.content:
+                    self.LOG.info(f"触发关键词点歌")
+                    self.toMusic(msg)
+                    return
+                
             # 非群聊消息
             if not msg.from_group():
                 
@@ -427,3 +436,12 @@ class Robot:
         news = News().get_important_news()
         for r in receivers:
             self.sendTextMsg(news, r)
+
+    def toMusic(self, msg: WxMsg) -> bool:
+        """处理点歌消息
+        Args:
+            msg: 微信消息结构
+        Returns:
+            bool: 是否处理成功
+        """
+        return self.music_service.process_music_command(msg.content, msg.roomid)

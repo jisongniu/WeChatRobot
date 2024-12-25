@@ -182,6 +182,7 @@ class NCCManager:
                         # 获取所有启用了转发的群组
                         lists = self.notion_manager.get_forward_lists_and_groups()
                         print(f"lists有这些：{lists}")
+                        # 从所有列表的所有群组中，提取出有效的 wxid，去重后存储到 forward_groups
                         forward_groups = list(set(
                             group['wxid'] for lst in lists 
                             for group in lst.groups 
