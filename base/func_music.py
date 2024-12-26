@@ -28,7 +28,9 @@ class MusicService:
                 "page": 1,
                 "limit": 1
             }
+            logger.info(f"正在请求主API，参数：{params}")
             response = requests.get(self.primary_api, params=params)
+            logger.info(f"主API响应状态码：{response.status_code}")
             
             # 如果主API失败，使用备用API
             if response.status_code == 400:
@@ -39,10 +41,14 @@ class MusicService:
                     "num": 1,
                     "type": "json"
                 }
+                logger.info(f"正在请求备用API，参数：{fallback_params}")
                 response = requests.get(self.fallback_api, params=fallback_params)
+                logger.info(f"备用API响应状态码：{response.status_code}")
             
             if response.status_code == 200:
-                return response.json()
+                data = response.json()
+                logger.info(f"API返回数据：{data}")
+                return data
             else:
                 logger.error(f"API请求失败，状态码: {response.status_code}")
                 return None
@@ -56,21 +62,48 @@ class MusicService:
         获取歌曲播放链接
         """
         try:
+            # 尝试主API
             music_play_api = f"https://qqmusic.qqovo.cn/getMusicPlay?songmid={song_mid}&quality=m4a"
+            logger.info(f"正在请求音乐播放链接：{music_play_api}")
             response = requests.get(music_play_api)
+            logger.info(f"播放链接API响应状态码：{response.status_code}")
             
-            if response.status_code == 400:
-                logger.info("获取播放链接失败，使用备用接口")
+            use_fallback = False
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"播放链接API返回数据：{data}")
+                # 检查是否真的获取到了播放链接
+                play_url = data.get('data', {}).get('playUrl', {}).get(song_mid, {}).get('url')
+                if not play_url:
+                    logger.info("主API未返回有效播放链接，切换到备用API")
+                    use_fallback = True
+            else:
+                use_fallback = True
+            
+            # 如果主API失败或没有返回有效链接，使用备用API
+            if use_fallback:
+                logger.info("使用备用接口获取播放链接")
                 fallback_params = {
                     "gm": song_name,
                     "n": 1,
                     "num": 1,
                     "type": "json"
                 }
+                logger.info(f"正在请求备用播放链接API，参数：{fallback_params}")
                 response = requests.get(self.fallback_api, params=fallback_params)
+                logger.info(f"备用播放链接API响应状态码：{response.status_code}")
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    logger.info(f"备用API返回数据：{data}")
+                    # 验证备用API返回的播放链接
+                    if data.get('music_url'):
+                        return data
             
-            if response.status_code == 200:
-                return response.json()
+            if not use_fallback:
+                return data
+                
+            logger.error("所有API都未能获取到有效的播放链接")
             return None
             
         except Exception as e:
@@ -148,15 +181,20 @@ class MusicService:
                 if not song_name:
                     return False
 
+                logger.info(f"开始搜索歌曲：{song_name}")
                 # 搜索歌曲
                 json_data = self.search_song(song_name)
                 if not json_data:
+                    logger.error("未获取到歌曲搜索结果")
                     return False
+
+                logger.info(f"搜索结果：{json_data}")
 
                 # 处理API返回数据
                 if 'response' in json_data:  # 主API返回格式
                     result = json_data.get('response', {}).get('data', {}).get('song', {}).get('list', [])
                     if not result:
+                        logger.error("主API未返回歌曲列表")
                         return False
 
                     song = result[0]
@@ -164,18 +202,29 @@ class MusicService:
                     song_mid = song.get('songmid')
                     singer_name = song.get('singer', [{}])[0].get('name', '')
                     
+                    logger.info(f"找到歌曲：{song_name} - {singer_name}")
+                    
                     # 获取歌手图片
                     zhida_singer = json_data.get('response', {}).get('data', {}).get('zhida', {}).get('zhida_singer', {})
                     singer_pic = zhida_singer.get('singerPic') if zhida_singer else None
                     
                     # 获取播放链接
+                    logger.info("开始获取播放链接")
                     music_data = self.get_play_url(song_mid, song_name)
                     if not music_data:
+                        logger.error("未获取到播放链接数据")
                         return False
 
                     if 'data' in music_data:  # 主API播放链接格式
                         play_url = music_data.get('data', {}).get('playUrl', {}).get(song_mid, {}).get('url')
-                        data_url = f"https://y.qq.com/n/ryqq/songDetail/{song_mid}"
+                        if not play_url:  # 如果主API没有返回播放链接，尝试使用备用API的数据
+                            play_url = music_data.get('music_url')
+                            data_url = music_data.get('link')
+                            singer_pic = music_data.get('cover')
+                            song_name = music_data.get('title')
+                            singer_name = music_data.get('singer')
+                        else:
+                            data_url = f"https://y.qq.com/n/ryqq/songDetail/{song_mid}"
                     else:  # 备用API格式
                         play_url = music_data.get('music_url')
                         data_url = music_data.get('link')
@@ -193,6 +242,8 @@ class MusicService:
                 if not play_url:
                     logger.error("未获取到音乐播放链接")
                     return False
+
+                logger.info(f"成功获取播放链接：{play_url}")
 
                 # 生成XML消息
                 xml_message = self.generate_xml_message(

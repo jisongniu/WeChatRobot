@@ -29,6 +29,7 @@ from ncc.welcome_service import WelcomeService  # 添加导入
 import random  
 import os
 from base.func_music import MusicService
+from base.func_feishu import FeishuBot  # 添加导入
 
 __version__ = "39.3.3.2"
 
@@ -53,6 +54,11 @@ class Robot:
         self.processed_msgs = set()  # 添加消息去重集合
         self.job_mgr = JobManager(wcf, self)
         self.music_service = MusicService(wcf)  # 初始化音乐服务
+
+        # 初始化飞书机器人
+        self.feishu_bot = None
+        if self.config.FEISHU_BOT.get("webhook"):
+            self.feishu_bot = FeishuBot(self.config.FEISHU_BOT["webhook"])
 
         # 选择模型
         if ChatType.is_in_chat_types(chat_type):
@@ -120,7 +126,7 @@ class Robot:
 
     def toChengyu(self, msg: WxMsg) -> bool:
         """
-        处理成语查询/接龙���息
+        处理成语查询/接龙息
         :param msg: 微信消息结构
         :return: 处理状态，`True` 成功，`False` 失败
         """
@@ -162,8 +168,12 @@ class Robot:
             # 如果是群聊，发送回复到群聊，并 @ 发送者
             if msg.from_group():
                 self.sendTextMsg(rsp, msg.roomid, msg.sender)
+                # 发送飞书通知
+                self._notify_feishu(rsp, msg.roomid, msg.content, msg.sender, True)
             else:  # 如果是私聊，直接发送回复
                 self.sendTextMsg(rsp, msg.sender)
+                # 发送飞书通知
+                self._notify_feishu(rsp, msg.sender, msg.content)
             return True  # 返回处理成功
         else:  # 如果没有获取到回复，记录错误日志
             self.LOG.error(f"无法从配置的LLm模型获得答案")
@@ -307,7 +317,7 @@ class Robot:
             
             # 初始化@列表为空
             ats = ""
-            # 如果���@列表
+            # 如果有@列表
             if at_list:
                 # 如果@列表是"notify@all"，则@所有人
                 if at_list == "notify@all":
@@ -445,3 +455,56 @@ class Robot:
             bool: 是否处理成功
         """
         return self.music_service.process_music_command(msg.content, msg.roomid)
+
+    def _should_notify_feishu(self, sender_wxid: str) -> bool:
+        """判断是否应该发送飞书通知
+        
+        Args:
+            sender_wxid: 发送者的wxid
+            
+        Returns:
+            bool: 是否应该发送通知
+        """
+        if not self.feishu_bot or not self.config.FEISHU_BOT.get("enable_notify"):
+            return False
+            
+        # 检查是否为管理员
+        admin_wxids = self.notion_manager.get_admins_wxid()
+        if sender_wxid in admin_wxids:
+            return False
+            
+        # 检查是否在转发状态
+        operator_state = self.ncc_manager.operator_states.get(sender_wxid)
+        if operator_state and operator_state.state == ForwardState.WAITING_CHOICE:
+            return False
+                
+        return True
+
+    def _notify_feishu(self, msg: str, receiver: str, sender_msg: str = "", sender_wxid: str = "", is_group: bool = False) -> None:
+        """发送飞书通知
+        
+        Args:
+            msg: 机器人的回复消息
+            receiver: 接收者ID
+            sender_msg: 发送者的原始消息
+            sender_wxid: 发送者的wxid
+            is_group: 是否是群消息
+        """
+        try:
+            if not self._should_notify_feishu(sender_wxid):
+                return
+                
+            # 获取接收者和发送者信息
+            if is_group:
+                group_name = self.wcf.get_room_name(receiver) or receiver
+                sender_name = self.wcf.get_alias_in_chatroom(sender_wxid, receiver) if sender_wxid else "未知用户"
+                notify_msg = f"「{group_name}」「{sender_name}」发送：{sender_msg}\n机器人回复：{msg}"
+            else:
+                contact = self.get_friend_by_wxid(receiver)
+                user_name = contact.nickname if contact else receiver
+                notify_msg = f"「{user_name}」发送：{sender_msg}\n机器人回复：{msg}"
+            
+            # 发送通知
+            self.feishu_bot.send_message(notify_msg)
+        except Exception as e:
+            self.LOG.error(f"发送飞书通知失败: {e}")
