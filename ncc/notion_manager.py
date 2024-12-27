@@ -219,7 +219,10 @@ class NotionManager:
                     continue
                 
                 # 获取群名
-                group_name = page['properties'].get('群名', {}).get('title', [{}])[0].get('text', {}).get('content', '')
+                title = page['properties'].get('群名', {}).get('title', [])
+                if not title:  # 如果title为空列表，跳过
+                    continue
+                group_name = title[0].get('text', {}).get('content', '') if title else ''
                 if not group_name:
                     continue
                     
@@ -303,7 +306,10 @@ class NotionManager:
                     continue
                 
                 # 获取群名
-                group_name = page['properties'].get('群名', {}).get('title', [{}])[0].get('text', {}).get('content', '')
+                title = page['properties'].get('群名', {}).get('title', [])
+                if not title:  # 如果title为空列表，跳过
+                    continue
+                group_name = title[0].get('text', {}).get('content', '') if title else ''
                 if not group_name:
                     continue
                     
@@ -336,7 +342,7 @@ class NotionManager:
             with open(self.local_data_path, 'r', encoding='utf-8') as f:
                 cache_data = json.load(f)
             
-            # 从缓存中获取管理员数据
+            # 从缓存中获取管理���数据
             admin_wxids = []
             for admin in cache_data.get('admins', []):
                 # 获取wxid属性
@@ -404,7 +410,10 @@ class NotionManager:
                 # 更新群组的 wxid
                 for page in cache_data['groups']:
                     # 获取群名
-                    group_name = page['properties'].get('群名', {}).get('title', [{}])[0].get('text', {}).get('content', '')
+                    title = page['properties'].get('群名', {}).get('title', [])
+                    if not title:  # 如果title为空列表，跳过
+                        continue
+                    group_name = title[0].get('text', {}).get('content', '') if title else ''
                     if not group_name:
                         continue
                         
@@ -428,11 +437,3 @@ class NotionManager:
         except Exception as e:
             logger.error(f"更新 Notion 数据失败: {e}")
             return False
-
-
-
-
-
-
-
-        

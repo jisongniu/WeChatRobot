@@ -13,7 +13,7 @@ from job_mgmt import JobManager
 def main(chat_type: int):
     """主函数"""
     config = Config()
-    wcf = Wcf(debug=True)
+    wcf = Wcf(debug=False)
 
     def handler(sig, frame):
         wcf.cleanup()  # 退出前清理环境

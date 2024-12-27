@@ -58,7 +58,12 @@ class Robot:
         # 初始化飞书机器人
         self.feishu_bot = None
         if self.config.FEISHU_BOT.get("webhook"):
-            self.feishu_bot = FeishuBot(self.config.FEISHU_BOT["webhook"])
+            self.feishu_bot = FeishuBot(
+                self.config.FEISHU_BOT["webhook"],
+                wcf,
+                self.notion_manager,
+                self.ncc_manager
+            )
 
         # 选择模型
         if ChatType.is_in_chat_types(chat_type):
@@ -169,11 +174,13 @@ class Robot:
             if msg.from_group():
                 self.sendTextMsg(rsp, msg.roomid, msg.sender)
                 # 发送飞书通知
-                self._notify_feishu(rsp, msg.roomid, msg.content, msg.sender, True)
+                if self.feishu_bot:
+                    self.feishu_bot.notify(rsp, msg.roomid, msg.content, msg.sender, True)
             else:  # 如果是私聊，直接发送回复
                 self.sendTextMsg(rsp, msg.sender)
                 # 发送飞书通知
-                self._notify_feishu(rsp, msg.sender, msg.content)
+                if self.feishu_bot:
+                    self.feishu_bot.notify(rsp, msg.sender, msg.content, msg.sender, False)
             return True  # 返回处理成功
         else:  # 如果没有获取到回复，记录错误日志
             self.LOG.error(f"无法从配置的LLm模型获得答案")
@@ -455,56 +462,3 @@ class Robot:
             bool: 是否处理成功
         """
         return self.music_service.process_music_command(msg.content, msg.roomid)
-
-    def _should_notify_feishu(self, sender_wxid: str) -> bool:
-        """判断是否应该发送飞书通知
-        
-        Args:
-            sender_wxid: 发送者的wxid
-            
-        Returns:
-            bool: 是否应该发送通知
-        """
-        if not self.feishu_bot or not self.config.FEISHU_BOT.get("enable_notify"):
-            return False
-            
-        # 检查是否为管理员
-        admin_wxids = self.notion_manager.get_admins_wxid()
-        if sender_wxid in admin_wxids:
-            return False
-            
-        # 检查是否在转发状态
-        operator_state = self.ncc_manager.operator_states.get(sender_wxid)
-        if operator_state and operator_state.state == ForwardState.WAITING_CHOICE:
-            return False
-                
-        return True
-
-    def _notify_feishu(self, msg: str, receiver: str, sender_msg: str = "", sender_wxid: str = "", is_group: bool = False) -> None:
-        """发送飞书通知
-        
-        Args:
-            msg: 机器人的回复消息
-            receiver: 接收者ID
-            sender_msg: 发送者的原始消息
-            sender_wxid: 发送者的wxid
-            is_group: 是否是群消息
-        """
-        try:
-            if not self._should_notify_feishu(sender_wxid):
-                return
-                
-            # 获取接收者和发送者信息
-            if is_group:
-                group_name = self.wcf.get_room_name(receiver) or receiver
-                sender_name = self.wcf.get_alias_in_chatroom(sender_wxid, receiver) if sender_wxid else "未知用户"
-                notify_msg = f"「{group_name}」「{sender_name}」发送：{sender_msg}\n机器人回复：{msg}"
-            else:
-                contact = self.get_friend_by_wxid(receiver)
-                user_name = contact.nickname if contact else receiver
-                notify_msg = f"「{user_name}」发送：{sender_msg}\n机器人回复：{msg}"
-            
-            # 发送通知
-            self.feishu_bot.send_message(notify_msg)
-        except Exception as e:
-            self.LOG.error(f"发送飞书通知失败: {e}")
