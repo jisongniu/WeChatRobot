@@ -26,6 +26,7 @@ from job_mgmt import JobManager
 from ncc.notion_manager import NotionManager
 from ncc.ncc_manager import NCCManager, ForwardState
 from ncc.welcome_service import WelcomeService  # 添加导入
+from ncc.invite_service import InviteService  # 添加导入
 import random  
 import os
 from base.func_music import MusicService
@@ -65,7 +66,8 @@ class Robot:
             lists_db_id=config.NOTION["LISTS_DB_ID"],
             groups_db_id=config.NOTION["GROUPS_DB_ID"],
             admins_db_id=config.NOTION["ADMINS_DB_ID"],
-            wcf=self.wcf
+            wcf=self.wcf,
+            config=config
         )
         
         # 初始化时更新一次 Notion 数据
@@ -130,6 +132,8 @@ class Robot:
             else:
                 self.LOG.warning("未配置模型")
                 self.chat = None
+
+        self.invite_service = InviteService(wcf=self.wcf, notion_manager=self.notion_manager)
 
     def toChengyu(self, msg: WxMsg) -> bool:
         """
@@ -238,7 +242,7 @@ class Robot:
                                 
                                 # 发送飞书通知
                                 if self.feishu_bot:
-                                    self.feishu_bot.notify(f"群 {msg.roomid} 的名称已更新为：{new_name}，Notion 和本地缓存都已更新）", sender_wxid=msg.sender)
+                                    self.feishu_bot.notify(f"群 {msg.roomid} 的名称已更新为：{new_name}，Notion 和本地缓存都已更新）")
                                 
                                 # 找到并处理完毕，跳出循环
                                 break
@@ -256,7 +260,7 @@ class Robot:
                             self.notion_manager.create_new_group(msg.roomid, group_name)
                             # 发送飞书通知
                             if self.feishu_bot:
-                                self.feishu_bot.notify(f"已将群聊 {group_name} ({msg.roomid}) 添加到 Notion", sender_wxid=msg.sender)
+                                self.feishu_bot.notify(f"已将群聊 {group_name} ({msg.roomid}) 添加到 Notion")
                     
                     # 3. 检测新成员加入
                     else:
@@ -320,9 +324,15 @@ class Robot:
                 self.LOG.info(f"触发关键词点歌")
                 self.toMusic(msg)
                 return
+                
+            # 3. 处理关键词邀请
+            if self.invite_service.handle_keyword(msg.content, msg.sender):
+                self.LOG.info(f"成功处理关键词邀请: {msg.content}")
+                return
             
-            # 3. 其他消息交给 AI 处理
-            self.toAIchat(msg)
+            # 4. 其他文字消息交给 AI 处理
+            if msg.type == 0x01 and not msg.from_self():
+                self.toAIchat(msg)
 
         except Exception as e:
             self.LOG.error(f"消息处理异常: {e}")

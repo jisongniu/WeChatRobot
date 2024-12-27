@@ -38,12 +38,23 @@ class ForwardList:
     groups: List[Dict[str, str]]
 
 class NotionManager:
-    def __init__(self, token: str, lists_db_id: str, groups_db_id: str, admins_db_id: str, wcf=None):
+    def __init__(self, token: str, lists_db_id: str, groups_db_id: str, admins_db_id: str, wcf: Wcf, config=None):
+        """初始化 NotionManager
+        
+        Args:
+            token: Notion API token
+            lists_db_id: 列表数据库ID
+            groups_db_id: 群组数据库ID
+            admins_db_id: 管理员数据库ID
+            wcf: WeChatFerry 实例
+            config: 配置对象
+        """
+        self.wcf = wcf
+        self.config = config  # 保存配置对象
         self.notion = Client(auth=token)
         self.lists_db_id = lists_db_id
         self.groups_db_id = groups_db_id
         self.admins_db_id = admins_db_id
-        self.wcf = wcf
         self.local_data_path = "data/notion_cache.json"
         self.welcome_groups = {}  # {group_wxid: welcome_url}
         
