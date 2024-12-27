@@ -78,12 +78,12 @@ class FeishuBot:
                 
         return True
 
-    def notify(self, msg: str, receiver: str, sender_msg: str = "", sender_wxid: str = "", is_group: bool = False) -> None:
+    def notify(self, msg: str, receiver: str = None, sender_msg: str = "", sender_wxid: str = "", is_group: bool = False) -> None:
         """发送飞书通知
         
         Args:
             msg: 机器人的回复消息
-            receiver: 接收者ID
+            receiver: 接收者ID，可选
             sender_msg: 发送者的原始消息
             sender_wxid: 发送者的wxid
             is_group: 是否是群消息
@@ -93,7 +93,7 @@ class FeishuBot:
                 return
                 
             # 获取接收者和发送者信息
-            if is_group:
+            if is_group and receiver:
                 # 从 notion_manager 获取群名映射
                 groups_info = self.notion_manager.get_groups_info() if self.notion_manager else {}
                 # 反转映射，找到群ID对应的群名
@@ -107,12 +107,15 @@ class FeishuBot:
                 notify_msg = f"「{group_name}」「{sender_name}」发送：{sender_msg}\n机器人：{msg}"
             else:
                 # 查询数据库获取好友昵称
-                contacts = self.wcf.query_sql(
-                    "MicroMsg.db", 
-                    f"SELECT NickName FROM Contact WHERE UserName='{receiver}';"
-                )
-                user_name = contacts[0]["NickName"] if contacts and len(contacts) > 0 else receiver
-                notify_msg = f"「{user_name}」发送：{sender_msg}\n机器人：{msg}"
+                if receiver:
+                    contacts = self.wcf.query_sql(
+                        "MicroMsg.db", 
+                        f"SELECT NickName FROM Contact WHERE UserName='{receiver}';"
+                    )
+                    user_name = contacts[0]["NickName"] if contacts and len(contacts) > 0 else receiver
+                    notify_msg = f"「{user_name}」发送：{sender_msg}\n机器人：{msg}"
+                else:
+                    notify_msg = f"机器人：{msg}"
             
             # 发送通知
             self.send_message(notify_msg)

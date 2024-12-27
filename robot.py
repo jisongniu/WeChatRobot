@@ -50,7 +50,7 @@ class Robot:
         self.wcf = wcf
         self.config = config
         self.LOG = logging.getLogger("Robot")
-        self.LOG.setLevel(logging.WARNING)
+        logging.getLogger("httpx").setLevel(logging.WARNING)
         self.wxid = self.wcf.get_self_wxid()
         self.allContacts = self.getAllContacts()
         self.processed_msgs = set()  # 添加消息去重集合
@@ -256,7 +256,7 @@ class Robot:
                             self.notion_manager.create_new_group(msg.roomid, group_name)
                             # 发送飞书通知
                             if self.feishu_bot:
-                                self.feishu_bot.notify(f"已将新群聊 {group_name} ({msg.roomid}) 添加到 Notion", sender_wxid=msg.sender)
+                                self.feishu_bot.notify(f"已将群聊 {group_name} ({msg.roomid}) 添加到 Notion", sender_wxid=msg.sender)
                     
                     # 3. 检测新成员加入
                     else:

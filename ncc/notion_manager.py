@@ -7,11 +7,11 @@ from notion_client import Client
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.WARNING)
 
 # 创建控制台处理器
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(logging.WARNING)
 
 # 创建格式化器
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -200,14 +200,31 @@ class NotionManager:
             logger.error(f"更新群组信息到 Notion 失败: {e}")
 
     def create_new_group(self, wxid: str, group_name: str) -> None:
-        """在 Notion 中创建新的群组记录
+        """在 Notion 中创建新的群组记录，如果群已存在则更新群名
         
         Args:
             wxid: 微信群 ID
             group_name: 群名称
         """
         try:
-            # 创建新的群组页面
+            # 检查并加载缓存数据
+            if not os.path.exists(self.local_data_path):
+                self.fetch_notion_data()
+            
+            # 读取缓存数据
+            with open(self.local_data_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
+            # 检查是否已存在该群
+            for page in cache_data.get('groups', []):
+                wxid_texts = page['properties'].get('group_wxid', {}).get('rich_text', [])
+                if wxid_texts and wxid_texts[0]['text']['content'] == wxid:
+                    # 群已存在，只更新群名
+                    self._update_group_wxid(page['id'], wxid, group_name)
+                    logger.info(f"群已存在，已更新群名: {group_name} ({wxid})")
+                    return
+            
+            # 群不存在，创建新的群组页面
             new_page = self.notion.pages.create(
                 parent={"database_id": self.groups_db_id},
                 properties={
@@ -239,7 +256,7 @@ class NotionManager:
             self.update_notion_data()
             
         except Exception as e:
-            logger.error(f"在 Notion 中创建新群组失败: {e}")
+            logger.error(f"在 Notion 中创建/更新群组失败: {e}")
 
     def get_all_allowed_groups(self) -> List[str]:
         """获取所有允许机器人响应的群组wxid列表"""
