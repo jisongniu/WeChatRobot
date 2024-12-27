@@ -5,6 +5,7 @@ from datetime import datetime
 from dataclasses import dataclass
 from notion_client import Client
 import logging
+from wcferry import Wcf
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
@@ -38,7 +39,7 @@ class ForwardList:
     groups: List[Dict[str, str]]
 
 class NotionManager:
-    def __init__(self, token: str, lists_db_id: str, groups_db_id: str, admins_db_id: str, wcf: Wcf, config=None):
+    def __init__(self, token: str, lists_db_id: str, groups_db_id: str, admins_db_id: str, keywords_db_id: str, wcf: Wcf, config=None):
         """初始化 NotionManager
         
         Args:
@@ -46,15 +47,20 @@ class NotionManager:
             lists_db_id: 列表数据库ID
             groups_db_id: 群组数据库ID
             admins_db_id: 管理员数据库ID
+            keywords_db_id: 关键词数据库ID
             wcf: WeChatFerry 实例
             config: 配置对象
         """
         self.wcf = wcf
         self.config = config  # 保存配置对象
         self.notion = Client(auth=token)
-        self.lists_db_id = lists_db_id
-        self.groups_db_id = groups_db_id
-        self.admins_db_id = admins_db_id
+        
+        # 格式化数据库 ID
+        self.lists_db_id = self._format_db_id(lists_db_id)
+        self.groups_db_id = self._format_db_id(groups_db_id)
+        self.admins_db_id = self._format_db_id(admins_db_id)
+        self.keywords_db_id = self._format_db_id(keywords_db_id)
+        
         self.local_data_path = "data/notion_cache.json"
         self.welcome_groups = {}  # {group_wxid: welcome_url}
         

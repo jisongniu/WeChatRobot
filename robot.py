@@ -66,6 +66,7 @@ class Robot:
             lists_db_id=config.NOTION["LISTS_DB_ID"],
             groups_db_id=config.NOTION["GROUPS_DB_ID"],
             admins_db_id=config.NOTION["ADMINS_DB_ID"],
+            keywords_db_id=config.NOTION["KEYWORDS_DB_ID"],
             wcf=self.wcf,
             config=config
         )

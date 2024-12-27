@@ -13,7 +13,7 @@ class InviteService:
     def __init__(self, wcf: Wcf, notion_manager: NotionManager):
         self.wcf = wcf
         self.notion_manager = notion_manager
-        self.keywords_db_id = self.notion_manager.config.NOTION.get("KEYWORDS_DB_ID")  # 从配置中读取
+        self.keywords_db_id = self.notion_manager.keywords_db_id
         if not self.keywords_db_id:
             logger.error("未配置 KEYWORDS_DB_ID")
             return
@@ -124,7 +124,7 @@ class InviteService:
                 result = self.wcf.invite_chatroom_members(group_id, user_wxid)
                 if result:
                     success = True
-                    logger.info(f"成功邀请用户 {user_wxid} 到群 {group_id}")
+                    logger.info(f"邀请用户 {user_wxid} 到群 {group_id}")
                 else:
                     logger.error(f"邀请用户 {user_wxid} 到群 {group_id} 失败")
                     
