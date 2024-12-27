@@ -50,6 +50,7 @@ class Robot:
         self.wcf = wcf
         self.config = config
         self.LOG = logging.getLogger("Robot")
+        self.LOG.setLevel(logging.WARNING)
         self.wxid = self.wcf.get_self_wxid()
         self.allContacts = self.getAllContacts()
         self.processed_msgs = set()  # 添加消息去重集合
@@ -237,7 +238,9 @@ class Robot:
                                 
                                 # 发送飞书通知
                                 if self.feishu_bot:
-                                    self.feishu_bot.notify(f"群 {msg.roomid} 的名称已更新为：{new_name}", msg.roomid, msg.content, msg.sender, True)
+                                    self.feishu_bot.notify(f"群 {msg.roomid} 的名称已更新为：{new_name}，Notion 和本地缓存都已更新）", sender_wxid=msg.sender)
+                                
+                                # 找到并处理完毕，跳出循环
                                 break
                     
                     # 2. 检测新群邀请
@@ -253,7 +256,7 @@ class Robot:
                             self.notion_manager.create_new_group(msg.roomid, group_name)
                             # 发送飞书通知
                             if self.feishu_bot:
-                                self.feishu_bot.notify(f"已将新群聊 {group_name} ({msg.roomid}) 添加到 Notion", msg.roomid, msg.content, msg.sender, True)
+                                self.feishu_bot.notify(f"已将新群聊 {group_name} ({msg.roomid}) 添加到 Notion", sender_wxid=msg.sender)
                     
                     # 3. 检测新成员加入
                     else:

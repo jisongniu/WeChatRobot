@@ -104,7 +104,7 @@ class FeishuBot:
                         break
                         
                 sender_name = self.wcf.get_alias_in_chatroom(sender_wxid, receiver) if sender_wxid else "未知用户"
-                notify_msg = f"「{group_name}」「{sender_name}」发送：{sender_msg}\n机器人回复：{msg}"
+                notify_msg = f"「{group_name}」「{sender_name}」发送：{sender_msg}\n机器人：{msg}"
             else:
                 # 查询数据库获取好友昵称
                 contacts = self.wcf.query_sql(
@@ -112,7 +112,7 @@ class FeishuBot:
                     f"SELECT NickName FROM Contact WHERE UserName='{receiver}';"
                 )
                 user_name = contacts[0]["NickName"] if contacts and len(contacts) > 0 else receiver
-                notify_msg = f"「{user_name}」发送：{sender_msg}\n机器人回复：{msg}"
+                notify_msg = f"「{user_name}」发送：{sender_msg}\n机器人：{msg}"
             
             # 发送通知
             self.send_message(notify_msg)
