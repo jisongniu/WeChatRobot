@@ -162,29 +162,84 @@ class NotionManager:
             logger.error(f"获取列表失败: {e}", exc_info=True)
             return []
 
-    def _update_group_wxid(self, page_id: str, wxid: str) -> None:
-        """更新群组的 wxid 到 Notion
+    def _update_group_wxid(self, page_id: str, wxid: str, group_name: str = None) -> None:
+        """更新群组的 wxid 和群名到 Notion
         
         Args:
             page_id: Notion 页面 ID
             wxid: 微信群 ID
+            group_name: 群名称（可选）
         """
         try:
+            properties = {
+                "group_wxid": { 
+                    "rich_text": [{
+                        "text": {
+                            "content": wxid
+                        }
+                    }]
+                }
+            }
+            
+            # 如果提供了群名，也更新群名
+            if group_name:
+                properties["群名"] = {
+                    "title": [{
+                        "text": {
+                            "content": group_name
+                        }
+                    }]
+                }
+            
             self.notion.pages.update(
                 page_id=page_id,
+                properties=properties
+            )
+            logger.debug(f"成功更新群组信息到 Notion: wxid={wxid}, name={group_name}")
+        except Exception as e:
+            logger.error(f"更新群组信息到 Notion 失败: {e}")
+
+    def create_new_group(self, wxid: str, group_name: str) -> None:
+        """在 Notion 中创建新的群组记录
+        
+        Args:
+            wxid: 微信群 ID
+            group_name: 群名称
+        """
+        try:
+            # 创建新的群组页面
+            new_page = self.notion.pages.create(
+                parent={"database_id": self.groups_db_id},
                 properties={
-                    "group_wxid": { 
+                    "群名": {
+                        "title": [{
+                            "text": {
+                                "content": group_name
+                            }
+                        }]
+                    },
+                    "group_wxid": {
                         "rich_text": [{
                             "text": {
                                 "content": wxid
                             }
                         }]
+                    },
+                    "允许发言": {
+                        "checkbox": False
+                    },
+                    "允许转发": {
+                        "checkbox": True
                     }
                 }
             )
-            logger.debug(f"成功更新群组 wxid 到 Notioin: {wxid}")
+            logger.info(f"成功在 Notion 中创建新群组: {group_name} ({wxid})")
+            
+            # 更新本地缓存
+            self.update_notion_data()
+            
         except Exception as e:
-            logger.error(f"更新群组 wxid 到 Notion 失败: {e}")
+            logger.error(f"在 Notion 中创建新群组失败: {e}")
 
     def get_all_allowed_groups(self) -> List[str]:
         """获取所有允许机器人响应的群组wxid列表"""

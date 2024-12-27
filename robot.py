@@ -30,6 +30,7 @@ import random
 import os
 from base.func_music import MusicService
 from base.func_feishu import FeishuBot  # 添加导入
+import json
 
 __version__ = "39.3.3.2"
 
@@ -192,94 +193,122 @@ class Robot:
 
     def processMsg(self, msg: WxMsg) -> None:
         """当收到消息的时候，会调用本方法。如果不实现本方法，则打印原始消息。
-        此处可进行自定义发送的内容,如通过 msg.content 关键字自动获取当前天气信息，并发送到对应的群组@发送者
+        此处可进行自定义发���的内容,如通过 msg.content 关键字自动获取当前天气信息，并发送到对应的群组@发送者
         群号：msg.roomid  微信ID：msg.sender  消息内容：msg.content
-        content = "xx天气信息为："
-        receivers = msg.roomid
-        self.sendTextMsg(content, receivers, msg.sender)
         """
         try:
-            # 处理定时任务命令
+            # 1. 处理自己发送的消息
+            if msg.from_self():
+                if msg.type == 0x01 and msg.content == "*更新":  # 只处理文本消息的更新命令
+                    self.config.reload()
+                    self.allowed_groups = self.notion_manager.get_all_allowed_groups()
+                    self.welcome_service.load_groups_from_local()
+                    self.LOG.info("已更新")
+                return
+            
+            # 2. 处理定时任务命令
             result = self.job_mgr.handle_command(msg.content, msg.sender)
             if result:
                 self.sendTextMsg(result, msg.roomid if msg.from_group() else msg.sender)
                 return
             
-            # 检查被允许群聊里文字消息
-            if msg.from_group() and msg.roomid in self.allowed_groups and msg.type == 0x01 and not msg.from_self():
-                # 类型1—— 被艾特或者以问：开头
-                if msg.content.startswith("@肥肉") or msg.is_at(self.wxid) or msg.content.startswith("问："):
-                    self.LOG.info(f"在被允许的群聊中被艾特或被问，处理消息")  
-                    # 从消息内容中移除 @ 和空格，得到问题
-                    cleaned_content = re.sub(r"@.*?[\u2005|\s]", "", msg.content).replace(" ", "")
-                    # 移除前缀
-                    cleaned_content = cleaned_content.replace("问：", "")
-                    
-                    def process_ai_reply():
-                        # 通过 ai 获取答案
-                        msg.content = cleaned_content  # 修改msg.content为清理后的内容
-                        self.toAIchat(msg)
+            # 3. 处理系统消息
+            if msg.type == 10000:
+                if msg.from_group():  # 群系统消息
+                    # 1. 检测群名修改
+                    name_change = re.search(r'群名已修改为"([^"]+)"', msg.content)
+                    if name_change:
+                        new_name = name_change.group(1)
+                        # 读取缓存数据
+                        with open(self.notion_manager.local_data_path, 'r', encoding='utf-8') as f:
+                            cache_data = json.load(f)
                         
-                    Thread(target=process_ai_reply, name="AIReply").start()
-                    return
-                
-                # 类型2—— 触发关键词肥肉
-                if "肥肉" in msg.content and not msg.content.startswith("@肥肉") and not msg.is_at(self.wxid):
-                    self.LOG.info(f"触发关键词肥肉且没有被艾特")  # 被@的或者问的
-                    def delayed_msg():
-                        # 先拍一拍
-                        self.wcf.send_pat_msg(msg.roomid, msg.sender)
-                        # 然后调用 toai
-                        self.toAIchat(msg)
-                        
-                    Thread(target=delayed_msg, name="PatAndMsg").start()
-                    return  # 处理完肥肉关键词且没有被艾特就返回，不再处理其他逻辑
-                
-                # 类型3—— 触发关键词点歌
-                if "点歌" in msg.content:
-                    self.LOG.info(f"触发关键词点歌")
-                    self.toMusic(msg)
-                    return
-                
-            # 非群聊消息
-            if not msg.from_group():
-                
-                # 类型1—— NCC 命令
-                # 获取各个操作者的状态  
-                operator_state = self.ncc_manager.operator_states.get(msg.sender)
-                # 如果消息内容是 ncc 或者操作者状态不是 Idle
-                if msg.content.lower() == "ncc" or (operator_state and operator_state.state != ForwardState.IDLE):
-                    # 处理 NCC 命令
-                    if self.ncc_manager.handle_message(msg):
-                        return
+                        # 在 groups 中查找对应的群
+                        for page in cache_data.get('groups', []):
+                            wxid_texts = page['properties'].get('group_wxid', {}).get('rich_text', [])
+                            if wxid_texts and wxid_texts[0]['text']['content'] == msg.roomid:
+                                # 更新 Notion 中的群名
+                                self.notion_manager._update_group_wxid(page['id'], msg.roomid, new_name)
+                                
+                                # 更新本地缓存中的群名
+                                page['properties']['群名']['title'][0]['text']['content'] = new_name
+                                with open(self.notion_manager.local_data_path, 'w', encoding='utf-8') as f:
+                                    json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                                
+                                self.LOG.info(f"群 {msg.roomid} 的名称已更新为：{new_name}（Notion 和本地缓存都已更新）")
+                                break
                     
-
-            # 好友请求,已经被 not implemented 了
-            # if msg.type == 37:  
-            #     self.handle_friend_request(msg)
-            #     return
-
-            elif msg.type == 10000:  # 系统消息
-                if msg.from_group():  # 是群消息
+                    # 2. 检测新成员加入
                     is_join, member_name = self.welcome_service.is_join_message(msg)
                     if is_join:
                         self.welcome_service.send_welcome(msg.roomid, member_name)
-                        return
-                else:  # 不是群消息，可能是好友申请通过
+                else:  # 私聊系统消息
                     self.sayHiToNewFriend(msg)
-                    return
-
-            # 处理自己发送的消息
-            if msg.from_self():
-                if msg.type == 0x01 and msg.content == "*更新":  # 只处理文本消息的更新命令
-                    self.config.reload()
-                    self.allowed_groups = self.notion_manager.get_all_allowed_groups()
-                    # 添加欢迎配置更新
-                    self.welcome_service.load_groups_from_local()
-                    self.LOG.info("已更新")
                 return
-
-
+            
+            # 4. 处理群聊消息
+            if msg.from_group():
+                # 非允许群聊，只处理新群邀请
+                if msg.roomid not in self.allowed_groups:
+                    if re.search(r".*邀请你加入了群聊", msg.content):
+                        # 获取群名称
+                        group_info = self.wcf.query_sql(
+                            "MicroMsg.db",
+                            f"SELECT NickName FROM Contact WHERE UserName='{msg.roomid}';"
+                        )
+                        if group_info and len(group_info) > 0:
+                            group_name = group_info[0]["NickName"]
+                            # 创建新群组记录
+                            self.notion_manager.create_new_group(msg.roomid, group_name)
+                            self.LOG.info(f"已将新群聊 {group_name} ({msg.roomid}) 添加到 Notion")
+                    return
+                
+                # 处理允许群聊的文字消息
+                if msg.type == 0x01 and not msg.from_self():
+                    # 1. 处理被艾特或问题消息
+                    if msg.content.startswith("@肥肉") or msg.is_at(self.wxid) or msg.content.startswith("问："):
+                        self.LOG.info(f"在被允许的群聊中被艾特或被问，处理消息")
+                        # 清理消息内容
+                        cleaned_content = re.sub(r"@.*?[\u2005|\s]", "", msg.content).replace(" ", "")
+                        cleaned_content = cleaned_content.replace("问：", "")
+                        
+                        def process_ai_reply():
+                            msg.content = cleaned_content
+                            self.toAIchat(msg)
+                        Thread(target=process_ai_reply, name="AIReply").start()
+                        return
+                    
+                    # 2. 处理关键词"肥肉"
+                    if "肥肉" in msg.content and not msg.content.startswith("@肥肉") and not msg.is_at(self.wxid):
+                        self.LOG.info(f"触发关键词肥肉且没有被艾特")
+                        def delayed_msg():
+                            self.wcf.send_pat_msg(msg.roomid, msg.sender)
+                            self.toAIchat(msg)
+                        Thread(target=delayed_msg, name="PatAndMsg").start()
+                        return
+                    
+                    # 3. 处理点歌命令
+                    if "点歌" in msg.content:
+                        self.LOG.info(f"触发关键词点歌")
+                        self.toMusic(msg)
+                        return
+                return
+            
+            # 5. 处理私聊消息
+            # 1. 优先处理 NCC 命令
+            operator_state = self.ncc_manager.operator_states.get(msg.sender)
+            if msg.content.lower() == "ncc" or (operator_state and operator_state.state != ForwardState.IDLE):
+                if self.ncc_manager.handle_message(msg):
+                    return
+            
+            # 2. 处理点歌命令
+            if "点歌" in msg.content:
+                self.LOG.info(f"触发关键词点歌")
+                self.toMusic(msg)
+                return
+            
+            # 3. 其他消息交给 AI 处理
+            self.toAIchat(msg)
 
         except Exception as e:
             self.LOG.error(f"消息处理异常: {e}")
@@ -455,7 +484,7 @@ class Robot:
             self.sendTextMsg(news, r)
 
     def toMusic(self, msg: WxMsg) -> bool:
-        """处理点歌消息
+        """处理���歌消息
         Args:
             msg: 微信消息结构
         Returns:
