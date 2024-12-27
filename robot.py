@@ -193,7 +193,7 @@ class Robot:
 
     def processMsg(self, msg: WxMsg) -> None:
         """当收到消息的时候，会调用本方法。如果不实现本方法，则打印原始消息。
-        此处可进行自定义发���的内容,如通过 msg.content 关键字自动获取当前天气信息，并发送到对应的群组@发送者
+        此处可进行自定义发送的内容,如通过 msg.content 关键字自动获取当前天气信息，并发送到对应的群组@发送者
         群号：msg.roomid  微信ID：msg.sender  消息内容：msg.content
         """
         try:
@@ -216,7 +216,7 @@ class Robot:
             if msg.type == 10000:
                 if msg.from_group():  # 群系统消息
                     # 1. 检测群名修改
-                    name_change = re.search(r'群名已修改为"([^"]+)"', msg.content)
+                    name_change = re.search(r'修改群名为\u201c(.*?)\u201d', msg.content)
                     if name_change:
                         new_name = name_change.group(1)
                         # 读取缓存数据
@@ -235,22 +235,13 @@ class Robot:
                                 with open(self.notion_manager.local_data_path, 'w', encoding='utf-8') as f:
                                     json.dump(cache_data, f, ensure_ascii=False, indent=2)
                                 
-                                self.LOG.info(f"群 {msg.roomid} 的名称已更新为：{new_name}（Notion 和本地缓存都已更新）")
+                                # 发送飞书通知
+                                if self.feishu_bot:
+                                    self.feishu_bot.notify(f"群 {msg.roomid} 的名称已更新为：{new_name}", msg.roomid, msg.content, msg.sender, True)
                                 break
                     
-                    # 2. 检测新成员加入
-                    is_join, member_name = self.welcome_service.is_join_message(msg)
-                    if is_join:
-                        self.welcome_service.send_welcome(msg.roomid, member_name)
-                else:  # 私聊系统消息
-                    self.sayHiToNewFriend(msg)
-                return
-            
-            # 4. 处理群聊消息
-            if msg.from_group():
-                # 非允许群聊，只处理新群邀请
-                if msg.roomid not in self.allowed_groups:
-                    if re.search(r".*邀请你加入了群聊", msg.content):
+                    # 2. 检测新群邀请
+                    elif re.search(r".*邀请你加入了群聊", msg.content):
                         # 获取群名称
                         group_info = self.wcf.query_sql(
                             "MicroMsg.db",
@@ -260,8 +251,26 @@ class Robot:
                             group_name = group_info[0]["NickName"]
                             # 创建新群组记录
                             self.notion_manager.create_new_group(msg.roomid, group_name)
-                            self.LOG.info(f"已将新群聊 {group_name} ({msg.roomid}) 添加到 Notion")
+                            # 发送飞书通知
+                            if self.feishu_bot:
+                                self.feishu_bot.notify(f"已将新群聊 {group_name} ({msg.roomid}) 添加到 Notion", msg.roomid, msg.content, msg.sender, True)
+                    
+                    # 3. 检测新成员加入
+                    else:
+                        is_join, member_name = self.welcome_service.is_join_message(msg)
+                        if is_join:
+                            self.welcome_service.send_welcome(msg.roomid, member_name)
+                
+                else:  # 私聊系统消息
+                    self.sayHiToNewFriend(msg)
+                return
+            
+            # 4. 处理群聊消息
+            if msg.from_group():
+                # 非允许群聊，直接返回
+                if msg.roomid not in self.allowed_groups:
                     return
+
                 
                 # 处理允许群聊的文字消息
                 if msg.type == 0x01 and not msg.from_self():
@@ -282,7 +291,9 @@ class Robot:
                     if "肥肉" in msg.content and not msg.content.startswith("@肥肉") and not msg.is_at(self.wxid):
                         self.LOG.info(f"触发关键词肥肉且没有被艾特")
                         def delayed_msg():
+                            # 先拍一拍
                             self.wcf.send_pat_msg(msg.roomid, msg.sender)
+                            # 然后调用 toai
                             self.toAIchat(msg)
                         Thread(target=delayed_msg, name="PatAndMsg").start()
                         return
@@ -294,7 +305,7 @@ class Robot:
                         return
                 return
             
-            # 5. 处理私聊消息
+            # 接下来处理私聊消息
             # 1. 优先处理 NCC 命令
             operator_state = self.ncc_manager.operator_states.get(msg.sender)
             if msg.content.lower() == "ncc" or (operator_state and operator_state.state != ForwardState.IDLE):
@@ -484,7 +495,7 @@ class Robot:
             self.sendTextMsg(news, r)
 
     def toMusic(self, msg: WxMsg) -> bool:
-        """处理���歌消息
+        """处理点歌消息
         Args:
             msg: 微信消息结构
         Returns:
