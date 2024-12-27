@@ -66,9 +66,8 @@ class FeishuBot:
             
         # 检查是否为管理员
         if self.notion_manager:
-            admin_wxids = self.notion_manager.get_admins_wxid()
+            admin_wxids = self.notion_manager.admins
             if sender_wxid in admin_wxids:
-                logger.info(f"管理员{sender_wxid}发送的消息不通知飞书")
                 return False
             
         # 检查是否在转发状态
@@ -95,7 +94,15 @@ class FeishuBot:
                 
             # 获取接收者和发送者信息
             if is_group:
-                group_name = self.wcf.get_room_name(receiver) or receiver
+                # 从 notion_manager 获取群名映射
+                groups_info = self.notion_manager.get_groups_info() if self.notion_manager else {}
+                # 反转映射，找到群ID对应的群名
+                group_name = receiver
+                for name, wxid in groups_info.items():
+                    if wxid == receiver:
+                        group_name = name
+                        break
+                        
                 sender_name = self.wcf.get_alias_in_chatroom(sender_wxid, receiver) if sender_wxid else "未知用户"
                 notify_msg = f"「{group_name}」「{sender_name}」发送：{sender_msg}\n机器人回复：{msg}"
             else:

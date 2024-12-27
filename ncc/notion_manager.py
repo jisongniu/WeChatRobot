@@ -342,7 +342,7 @@ class NotionManager:
             with open(self.local_data_path, 'r', encoding='utf-8') as f:
                 cache_data = json.load(f)
             
-            # 从缓存中获取管理���数据
+            # 从缓存中获取管理员数据
             admin_wxids = []
             for admin in cache_data.get('admins', []):
                 # 获取wxid属性

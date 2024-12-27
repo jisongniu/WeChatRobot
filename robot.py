@@ -55,6 +55,27 @@ class Robot:
         self.job_mgr = JobManager(wcf, self)
         self.music_service = MusicService(wcf)  # 初始化音乐服务
 
+        # 确保数据目录存在
+        os.makedirs("data", exist_ok=True)
+        
+        self.notion_manager = NotionManager(
+            token=config.NOTION["TOKEN"],
+            lists_db_id=config.NOTION["LISTS_DB_ID"],
+            groups_db_id=config.NOTION["GROUPS_DB_ID"],
+            admins_db_id=config.NOTION["ADMINS_DB_ID"],
+            wcf=self.wcf
+        )
+        
+        # 初始化时更新一次 Notion 数据
+        self.notion_manager.update_notion_data()
+        # 初始化允许的群组列表
+        self.allowed_groups = self.notion_manager.get_all_allowed_groups()
+        
+        self.ncc_manager = NCCManager(
+            notion_manager=self.notion_manager,
+            wcf=self.wcf
+        )
+
         # 初始化飞书机器人
         self.feishu_bot = None
         if self.config.FEISHU_BOT.get("webhook"):
@@ -64,6 +85,11 @@ class Robot:
                 self.notion_manager,
                 self.ncc_manager
             )
+        
+        # 添加 WelcomeService 初始化
+        self.welcome_service = WelcomeService(wcf=self.wcf)
+        # 加载群组配置
+        self.welcome_service.load_groups_from_local()
 
         # 选择模型
         if ChatType.is_in_chat_types(chat_type):
@@ -102,32 +128,6 @@ class Robot:
             else:
                 self.LOG.warning("未配置模型")
                 self.chat = None
-
-        # 确保数据目录存在
-        os.makedirs("data", exist_ok=True)
-        
-        self.notion_manager = NotionManager(
-            token=config.NOTION["TOKEN"],
-            lists_db_id=config.NOTION["LISTS_DB_ID"],
-            groups_db_id=config.NOTION["GROUPS_DB_ID"],
-            admins_db_id=config.NOTION["ADMINS_DB_ID"],
-            wcf=self.wcf
-        )
-        
-        # 初始化时更新一次 Notion 数据
-        self.notion_manager.update_notion_data()
-        # 初始化允许的群组列表
-        self.allowed_groups = self.notion_manager.get_all_allowed_groups()
-        
-        self.ncc_manager = NCCManager(
-            notion_manager=self.notion_manager,
-            wcf=self.wcf
-        )
-        
-        # 添加 WelcomeService 初始化
-        self.welcome_service = WelcomeService(wcf=self.wcf)
-        # 加载群组配置
-        self.welcome_service.load_groups_from_local()
 
     def toChengyu(self, msg: WxMsg) -> bool:
         """
