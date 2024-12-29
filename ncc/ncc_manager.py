@@ -289,16 +289,13 @@ class NCCManager:
                 # 保存消息（在welcome_service.py中实现）
                 self.welcome_service.save_messages(operator_state.current_group, operator_state.messages, msg.sender)
                 
-                # 返回管理状态
-                operator_state.state = ForwardState.WELCOME_MANAGE
-                operator_state.messages = []
-                
-                # 显示菜单
-                self.welcome_service.show_menu(msg.sender)
+                # 重置状态
+                self._reset_operator_state(msg.sender)
                 return True
                 
             # 收集消息（支持文本、图片、合并转发消息，具体处理在welcome_service.py中）
             operator_state.messages.append(msg)
+            self.sendTextMsg(f"✅ 已收集 {len(operator_state.messages)} 条消息，继续发送或回复数字1完成设置", msg.sender)
             return True
 
         return False

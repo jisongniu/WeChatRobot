@@ -80,7 +80,14 @@ class WelcomeService:
                 if image_path:
                     saved_messages.append({"type": "image", "path": image_path})
             elif msg.type == 0x49:  # 合并转发消息
-                saved_messages.append({"type": "merged", "recorditem": msg.content})
+                try:
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(msg.content)
+                    recorditem = root.find('.//recorditem')
+                    if recorditem is not None and recorditem.text:
+                        saved_messages.append({"type": "merged", "recorditem": recorditem.text})
+                except Exception as e:
+                    logger.error(f"处理合并转发消息失败: {e}")
 
         self.welcome_manager.set_welcome_messages(group_id, saved_messages, operator)
         self.wcf.send_text("✅ 迎新消息设置成功！", operator)

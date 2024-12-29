@@ -26,7 +26,7 @@ from job_mgmt import JobManager
 from ncc.notion_manager import NotionManager
 from ncc.ncc_manager import NCCManager, ForwardState
 from ncc.welcome_service import WelcomeService  # 添加导入
-from ncc.invite_service import InviteService  # 添加导入
+from ncc.invite_group import InviteService  # 添加导入
 import random  
 import os
 from base.func_music import MusicService
@@ -500,7 +500,7 @@ class Robot:
             self.sendTextMsg(FRIEND_WELCOME_MSG, msg.sender)
             # 发送飞书通知，添加了新好友，发送欢迎消息
             if self.feishu_bot:
-                self.feishu_bot.notify("添加了新好友，发送欢迎消息", msg.sender, msg.content, msg.sender, False)
+                self.feishu_bot.notify("有人来加肥肉，发送欢迎消息", msg.sender, msg.content, msg.sender, False)
 
     def newsReport(self) -> None:
         receivers = self.config.NEWS
