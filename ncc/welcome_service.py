@@ -48,8 +48,15 @@ class WelcomeService:
             elif msg["type"] == "merged":
                 self._send_merged_msg(msg["recorditem"], operator)
 
+        # 获取创建者的昵称
+        creator_info = self.wcf.query_sql(
+            "MicroMsg.db",
+            f"SELECT NickName FROM Contact WHERE UserName='{config['operator']}';"
+        )
+        creator_name = creator_info[0]["NickName"] if creator_info else config['operator']
+
         self.wcf.send_text(
-            f"当前迎新消息由 {config['operator']} 创建于 {config['update_time']}，如果需要修改，请回复2",
+            f"当前迎新消息由 {creator_name} 创建于 {config['update_time']}，如果需要修改，请回复2",
             operator
         )
 
@@ -89,6 +96,21 @@ class WelcomeService:
                 return True, member_name
         return False, ""
 
+    def handle_message(self, msg: WxMsg) -> None:
+        """处理入群消息，触发欢迎消息发送"""
+        # 检查是否是入群消息
+        is_join, member_name = self.is_join_message(msg)
+        if is_join:
+            # 在新线程中发送欢迎消息
+            from threading import Thread
+            Thread(
+                target=self.send_welcome,
+                args=(msg.roomid, member_name),
+                name=f"WelcomeThread-{member_name}",
+                daemon=True
+            ).start()
+            logger.info(f"已启动欢迎消息发送线程: {member_name}")
+
     def send_welcome(self, group_id: str, member_name: str) -> bool:
         """发送迎新消息"""
         try:
@@ -122,7 +144,7 @@ class WelcomeService:
                             self.wcf.send_image(msg.get("path"), group_id)
                         elif msg_type == "merged":
                             self._send_merged_msg(msg.get("recorditem"), group_id)
-                        time.sleep(0.3)  # 消息发送间隔
+                        time.sleep(random.uniform(1, 5))  # 消息发送间隔1到5s
                     except Exception as e:
                         logger.error(f"发送迎新消息失败: {e}")
 
@@ -155,19 +177,42 @@ class WelcomeService:
             xml_msg = f"""<?xml version="1.0"?>
 <msg>
     <appmsg appid="" sdkver="0">
-        <title>聊天记录</title>
+        <title>群聊的聊天记录</title>
         <des>聊天记录</des>
+        <action>view</action>
         <type>19</type>
+        <showtype>0</showtype>
+        <content></content>
         <url>https://support.weixin.qq.com/cgi-bin/mmsupport-bin/readtemplate?t=page/favorite_record__w_unsupport</url>
+        <dataurl></dataurl>
+        <lowurl></lowurl>
+        <lowdataurl></lowdataurl>
+        <recorditem><![CDATA[{recorditem}]]></recorditem>
+        <thumburl></thumburl>
+        <messageaction></messageaction>
         <appattach>
+            <totallen>0</totallen>
+            <attachid></attachid>
+            <emoticonmd5></emoticonmd5>
+            <fileext></fileext>
             <cdnthumbaeskey></cdnthumbaeskey>
             <aeskey></aeskey>
         </appattach>
-        <recorditem>{recorditem}</recorditem>
-        <percent>0</percent>
+        <extinfo></extinfo>
+        <sourceusername></sourceusername>
+        <sourcedisplayname></sourcedisplayname>
+        <commenturl></commenturl>
     </appmsg>
+    <fromusername></fromusername>
+    <scene>0</scene>
+    <appinfo>
+        <version>1</version>
+        <appname></appname>
+    </appinfo>
+    <commenturl></commenturl>
 </msg>"""
 
+            # 压缩XML消息
             text_bytes = xml_msg.encode('utf-8')
             compressed_data = lb.compress(text_bytes, store_size=False)
             compressed_data_hex = compressed_data.hex()
@@ -265,11 +310,3 @@ class WelcomeService:
         except Exception as e:
             logger.error(f"提取title值失败: {e}")
         return ""
-
-    def handle_message(self, msg: WxMsg) -> None:
-        """处理入群消息，触发欢迎消息发送"""
-        # 检查是否是入群消息
-        is_join, member_name = self.is_join_message(msg)
-        if is_join:
-            # 发送欢迎消息（包括自定义消息和小卡片）
-            self.send_welcome(msg.roomid, member_name)
