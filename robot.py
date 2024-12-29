@@ -376,7 +376,7 @@ class Robot:
         """
         try:
             # 添加随机延迟
-            delay = random.uniform(0.5, 1.5)  # 随机 0.5-1.5 秒延迟
+            delay = random.uniform(1, 5)  # 随机 1-5 秒延迟
             time.sleep(delay)
             
             # 初始化@列表为空
@@ -501,7 +501,7 @@ class Robot:
             # 发送飞书通知，添加了新好友，发送欢迎消息
             if self.feishu_bot:
                 self.feishu_bot.notify("添加了新好友，发送欢迎消息", msg.sender, msg.content, msg.sender, False)
-                
+
     def newsReport(self) -> None:
         receivers = self.config.NEWS
         if not receivers:

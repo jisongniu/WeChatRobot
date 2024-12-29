@@ -248,16 +248,21 @@ class NCCManager:
                     group = groups[choice - 1]
                     operator_state.current_group = group['wxid']
                     operator_state.state = ForwardState.WELCOME_MANAGE
-                    # 调用迎新消息管理功能
+                    # 调用迎新消息管理功能，并等待其完成
                     self.welcome_service.manage_welcome_messages(group['wxid'], msg.sender)
                     # 完成后重置状态
                     self._reset_operator_state(msg.sender)
+                    return True
                 else:
                     self.sendTextMsg("无效的选择，请重新输入", msg.sender)
                 return True
             except ValueError:
                 self.sendTextMsg("请输入有效的数字", msg.sender)
                 return True
+
+        # 如果状态是WELCOME_MANAGE，消息应该由welcome_service处理
+        elif operator_state.state == ForwardState.WELCOME_MANAGE:
+            return self.welcome_service.handle_message(msg)
 
         return False
     

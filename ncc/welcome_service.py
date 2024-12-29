@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import random
 import time
 from queue import Queue
-from threading import Lock
+from threading import Lock, Thread
 import lz4.block as lb
 from .welcome_config import WelcomeConfig
 
@@ -27,8 +27,55 @@ class WelcomeService:
         self.welcome_configs = {} 
         self.executor = ThreadPoolExecutor()  # 创建线程池
         self.welcome_manager = WelcomeConfig()  # 新的迎新消息管理器
-        self.message_queues: Dict[str, Queue] = {}  # 每个操作者的消息队列
-        self.message_queue_lock = Lock()  # 用于保护message_queues的锁
+        
+        # 添加消息队列和处理线程
+        self.welcome_queue = Queue()
+        self.welcome_thread = Thread(target=self._process_welcome_queue, daemon=True)
+        self.welcome_thread.start()
+        
+        # 用于管理每个操作者的消息队列
+        self.message_queues: Dict[str, Queue] = {}
+        self.message_queue_lock = Lock()
+
+    def _process_welcome_queue(self):
+        """处理迎新消息队列的后台线程"""
+        while True:
+            try:
+                # 从队列获取迎新任务
+                task = self.welcome_queue.get()
+                if task is None:
+                    continue
+                    
+                group_id, member_name, operator_id = task
+                
+                # 获取群的迎新消息配置
+                welcome_config = self.welcome_manager.get_welcome_messages(group_id)
+                if not welcome_config:
+                    continue
+                
+                # 发送自定义迎新消息
+                messages = welcome_config.get("messages", [])
+                for msg in messages:
+                    try:
+                        msg_type = msg.get("type")
+                        if msg_type == "text":
+                            content = msg.get("content", "").replace("{member_name}", member_name)
+                            self.wcf.send_text(content, group_id)
+                        elif msg_type == "image":
+                            self.wcf.send_image(msg.get("path"), group_id)
+                        elif msg_type == "merged":
+                            self._send_merged_msg(msg.get("content"), group_id)
+                        time.sleep(0.3)  # 消息发送间隔
+                    except Exception as e:
+                        logger.error(f"发送迎新消息失败: {e}")
+                        
+                if operator_id:
+                    self.wcf.send_text("迎新消息发送完成", operator_id)
+                    
+            except Exception as e:
+                logger.error(f"处理迎新消息队列异常: {e}")
+            finally:
+                self.welcome_queue.task_done()
 
     def _get_message_queue(self, operator: str) -> Queue:
         """获取或创建操作者的消息队列"""
@@ -142,19 +189,21 @@ class WelcomeService:
                 return True, member_name
         return False, ""
 
-    def send_welcome(self, group_id: str, member_name: str) -> bool:
-        """发送欢迎消息（同时发送公众号文章和自定义迎新消息）"""
-        # 发送公众号文章
-        article_sent = False
-        welcome_url = self.welcome_configs.get(group_id)
-        if welcome_url:
-            self.executor.submit(self._delayed_send_welcome, group_id, welcome_url, member_name)
-            article_sent = True
-        
-        # 发送自定义迎新消息
-        custom_sent = self.send_custom_welcome(group_id, member_name)
-        
-        return article_sent or custom_sent  # 只要有一个发送成功就返回True
+    def send_welcome(self, group_id: str, member_name: str, operator_id: str = None) -> bool:
+        """发送迎新消息"""
+        try:
+            # 将迎新任务添加到队列
+            self.welcome_queue.put((group_id, member_name, operator_id))
+            
+            # 如果有welcome_url，启动延迟发送
+            welcome_url = self.welcome_configs.get(group_id)
+            if welcome_url:
+                self.executor.submit(self._delayed_send_welcome, group_id, welcome_url, member_name)
+            
+            return True
+        except Exception as e:
+            logger.error(f"添加迎新任务失败: {e}")
+            return False
 
     def _delayed_send_welcome(self, group_id: str, welcome_url: str, member_name: str) -> None:
         """在单独的线程中处理延迟发送"""
@@ -209,15 +258,16 @@ class WelcomeService:
     def manage_welcome_messages(self, group_id: str, operator: str) -> None:
         """管理群的迎新消息"""
         try:
+            # 首次显示菜单
+            menu = (
+                "迎新消息管理：\n"
+                "1 👈 查看当前迎新消息\n"
+                "2 👈 设置新的迎新消息\n"
+                "0 👈 退出"
+            )
+            self.wcf.send_text(menu, operator)
+            
             while True:
-                menu = (
-                    "\n迎新消息管理：\n"
-                    "1 👈 查看当前迎新消息\n"
-                    "2 👈 设置新的迎新消息\n"
-                    "0 👈 退出"
-                )
-                self.wcf.send_text(menu, operator)
-                
                 msg = self._wait_for_next_message(operator)
                 if not msg:
                     continue
@@ -227,8 +277,15 @@ class WelcomeService:
                     break
                 elif msg.content == "1":
                     self._show_current_messages(group_id, operator)
+                    # 显示完当前消息后，重新显示菜单
+                    self.wcf.send_text(menu, operator)
                 elif msg.content == "2":
                     self._set_new_messages(group_id, operator)
+                    # 设置完成后退出
+                    break
+                else:
+                    # 无效输入时重新显示菜单
+                    self.wcf.send_text("无效的选择\n" + menu, operator)
         finally:
             # 清理消息队列
             self._remove_message_queue(operator)
