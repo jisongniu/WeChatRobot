@@ -4,29 +4,13 @@ from typing import Optional, List, Dict
 import os
 import json
 from wcferry import Wcf, WxMsg
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import random
 import time
-from queue import Queue
-from threading import Lock, Thread
 import lz4.block as lb
 from .welcome_config import WelcomeConfig
-from enum import Enum
 
 logging.basicConfig(level=logging.INFO)
-
 logger = logging.getLogger(__name__)
-
-class WelcomeState(Enum):
-    WAITING_CHOICE = 1
-    COLLECTING_MESSAGES = 2
-
-class WelcomeContext:
-    def __init__(self):
-        self.state = WelcomeState.WAITING_CHOICE
-        self.group_id = None
-        self.messages = []
 
 class WelcomeService:
     def __init__(self, wcf):
@@ -73,19 +57,24 @@ class WelcomeService:
         """保存迎新消息"""
         saved_messages = []
         for msg in messages:
-            if msg.type == 0x01:  # 文本消息
+            if msg.type == 1:  # 文本消息
                 saved_messages.append({"type": "text", "content": msg.content})
-            elif msg.type == 0x03:  # 图片消息
+            elif msg.type == 3:  # 图片消息
                 image_path = self.wcf.get_message_image(msg)
                 if image_path:
                     saved_messages.append({"type": "image", "path": image_path})
-            elif msg.type == 0x49:  # 合并转发消息
+            elif msg.type == 49:  # 合并转发消息
                 try:
                     import xml.etree.ElementTree as ET
                     root = ET.fromstring(msg.content)
                     recorditem = root.find('.//recorditem')
-                    if recorditem is not None and recorditem.text:
-                        saved_messages.append({"type": "merged", "recorditem": recorditem.text})
+                    if recorditem is not None:
+                        # 获取完整的recorditem内容
+                        recorditem_str = ET.tostring(recorditem, encoding='unicode')
+                        # 提取<recorditem>标签内的内容
+                        content = recorditem_str.replace('<recorditem>', '').replace('</recorditem>', '')
+                        if content:
+                            saved_messages.append({"type": "merged", "recorditem": content})
                 except Exception as e:
                     logger.error(f"处理合并转发消息失败: {e}")
 
@@ -175,7 +164,7 @@ class WelcomeService:
             <cdnthumbaeskey></cdnthumbaeskey>
             <aeskey></aeskey>
         </appattach>
-        <recorditem><![CDATA[{recorditem}]]></recorditem>
+        <recorditem>{recorditem}</recorditem>
         <percent>0</percent>
     </appmsg>
 </msg>"""
@@ -277,3 +266,11 @@ class WelcomeService:
         except Exception as e:
             logger.error(f"提取title值失败: {e}")
         return ""
+
+    def handle_message(self, msg: WxMsg) -> None:
+        """处理入群消息，触发欢迎消息发送"""
+        # 检查是否是入群消息
+        is_join, member_name = self.is_join_message(msg)
+        if is_join:
+            # 发送欢迎消息（包括自定义消息和小卡片）
+            self.send_welcome(msg.roomid, member_name)

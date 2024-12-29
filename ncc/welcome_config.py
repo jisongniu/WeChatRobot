@@ -40,7 +40,7 @@ class WelcomeConfig:
         self.configs[group_id] = {
             "messages": messages,
             "operator": operator,
-            "update_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "update_time": datetime.now().strftime("%Y-%m-%d")
         }
         self.save_configs()
 
