@@ -121,7 +121,10 @@ class NCCManager:
                 self.sendTextMsg(response, msg.sender)
                 return True
             elif msg.content == "2":  # 同步 Notion 数据到本地缓存
+                # 更新 list、group、管理员
                 self.notion_manager.update_notion_data()
+                # 更新 keyword
+                self.invite_group.update_keywords_data()
                 # 发送菜单以供选择
                 self.sendTextMsg("同步成功，请选择操作", msg.sender)
                 self._send_menu(msg.sender)

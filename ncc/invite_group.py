@@ -61,7 +61,6 @@ class InviteService:
                 
             # 更新内存中的映射
             self.keywords_map = keywords_map
-            logger.info("关键词数据更新成功")
             
         except Exception as e:
             logger.error(f"更新关键词数据失败: {e}")

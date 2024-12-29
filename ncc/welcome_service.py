@@ -92,6 +92,21 @@ class WelcomeService:
     def send_welcome(self, group_id: str, member_name: str) -> bool:
         """发送迎新消息"""
         try:
+            # 先延迟3-10秒发送小卡片
+            delay = random.randint(3, 10)
+            logger.info(f"在 {delay} 秒后发送小卡片给 {member_name}")
+            time.sleep(delay)
+
+            # 如果有welcome_url，先发送小卡片
+            welcome_url = self.welcome_configs.get(group_id)
+            if welcome_url:
+                self._send_welcome_message(group_id, welcome_url, member_name)
+
+            # 再延迟3-20秒发送自定义消息
+            delay = random.randint(3, 20)
+            logger.info(f"在 {delay} 秒后发送自定义消息给 {member_name}")
+            time.sleep(delay)
+
             # 获取群的迎新消息配置
             welcome_config = self.welcome_manager.get_welcome_messages(group_id)
             if welcome_config:
@@ -111,26 +126,10 @@ class WelcomeService:
                     except Exception as e:
                         logger.error(f"发送迎新消息失败: {e}")
 
-            # 如果有welcome_url，启动延迟发送
-            welcome_url = self.welcome_configs.get(group_id)
-            if welcome_url:
-                self._delayed_send_welcome(group_id, welcome_url, member_name)
-
             return True
         except Exception as e:
             logger.error(f"发送迎新消息失败: {e}")
             return False
-
-    def _delayed_send_welcome(self, group_id: str, welcome_url: str, member_name: str) -> None:
-        """延迟发送欢迎消息"""
-        try:
-            # 随机延迟30-60秒
-            delay = random.randint(30, 60)
-            logger.info(f"在 {delay} 秒后发送欢迎消息给 {member_name}")
-            time.sleep(delay)
-            self._send_welcome_message(group_id, welcome_url, member_name)
-        except Exception as e:
-            logger.error(f"发送欢迎消息失败: {e}")
 
     def _send_welcome_message(self, group_id: str, welcome_url: str, member_name: str) -> bool:
         """发送具体的欢迎消息"""
