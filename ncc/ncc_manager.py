@@ -23,6 +23,7 @@ class ForwardState(Enum):
     WAITING_CHOICE = "waiting_choice"
     WELCOME_MANAGE = "welcome_manage"  # 迎新消息管理状态
     WELCOME_GROUP_CHOICE = "welcome_group_choice"  # 选择要管理迎新消息的群
+    WELCOME_COLLECTING = "welcome_collecting"  # 收集新的迎新消息
 
 @dataclass
 class OperatorState:
@@ -104,7 +105,7 @@ class NCCManager:
             return True
 
         if operator_state.state == ForwardState.WAITING_CHOICE_MODE:
-            if msg.content == "5":  # 处理迎新消息管理选项
+            if msg.content == "5":  # 进入迎新消息管理模式，显示所有启用迎新推送的群列表
                 operator_state.state = ForwardState.WELCOME_GROUP_CHOICE
                 # 获取所有启用了迎新推送的群组
                 groups = self.welcome_service.load_groups_from_local()
@@ -119,21 +120,21 @@ class NCCManager:
                 response += "\n请回复数字选择要管理的群聊，回复0退出"
                 self.sendTextMsg(response, msg.sender)
                 return True
-            elif msg.content == "2":
+            elif msg.content == "2":  # 同步 Notion 数据到本地缓存
                 self.notion_manager.update_notion_data()
                 # 发送菜单以供选择
                 self.sendTextMsg("同步成功，请选择操作", msg.sender)
                 self._send_menu(msg.sender)
                 return True
-            elif msg.content == "1":
+            elif msg.content == "1":  # 进入消息转发模式
                 operator_state.state = ForwardState.WAITING_MESSAGE
                 operator_state.messages = []
                 self.sendTextMsg("请发送需要转发的内容，支持公众号、推文、视频号、文字、图片、合并消息，一个一个来\n发送【选择群聊】进入下一步\n随时发送【0】退出转发模式", msg.sender)
                 return True
-            elif msg.content == "3":
+            elif msg.content == "3":  # 查看 Notion 后台链接
                 self.sendTextMsg("列表信息，请登陆查看：https://www.notion.so/bigsong/NCC-1564e93f5682805d9a2ff0519c24738b?pvs=4", msg.sender)
                 return True
-            elif msg.content == "4":
+            elif msg.content == "4":  # 查看团队成员列表
                 # 获取管理员称呼列表
                 admin_names = self.notion_manager.get_admin_names()
                 admin_list = "成员：\n" + "\n".join(f"👤 {name}" for name in admin_names)
@@ -238,20 +239,17 @@ class NCCManager:
         elif operator_state.state == ForwardState.WELCOME_GROUP_CHOICE:
             try:
                 choice = int(msg.content)
-                if choice == 0:
+                if choice == 0:  # 退出迎新消息管理
                     self._reset_operator_state(msg.sender)
                     self.sendTextMsg("已退出迎新消息管理", msg.sender)
                     return True
 
                 groups = self.welcome_service.load_groups_from_local()
-                if 1 <= choice <= len(groups):
+                if 1 <= choice <= len(groups):  # 选择要管理的群，进入迎新消息管理菜单
                     group = groups[choice - 1]
                     operator_state.current_group = group['wxid']
                     operator_state.state = ForwardState.WELCOME_MANAGE
-                    # 调用迎新消息管理功能，并等待其完成
-                    self.welcome_service.manage_welcome_messages(group['wxid'], msg.sender)
-                    # 完成后重置状态
-                    self._reset_operator_state(msg.sender)
+                    self.welcome_service.show_menu(msg.sender)  # 显示迎新消息管理菜单（查看/设置）
                     return True
                 else:
                     self.sendTextMsg("无效的选择，请重新输入", msg.sender)
@@ -260,9 +258,48 @@ class NCCManager:
                 self.sendTextMsg("请输入有效的数字", msg.sender)
                 return True
 
-        # 如果状态是WELCOME_MANAGE，消息应该由welcome_service处理
-        elif operator_state.state == ForwardState.WELCOME_MANAGE:
-            return self.welcome_service.handle_message(msg)
+        elif operator_state.state == ForwardState.WELCOME_MANAGE: #上一步选择群后，进入迎新消息管理菜单
+            try:
+                choice = int(msg.content)
+                if choice == 0:  # 退出迎新消息管理
+                    self._reset_operator_state(msg.sender)
+                    self.sendTextMsg("已退出迎新消息管理", msg.sender)
+                    return True
+                elif choice == 1:  # 查看当前群的迎新消息（在welcome_service.py中实现）
+                    self.welcome_service.show_current_messages(operator_state.current_group, msg.sender)
+                    return True
+                elif choice == 2:  # 设置新的迎新消息，进入消息收集状态
+                    operator_state.state = ForwardState.WELCOME_COLLECTING
+                    operator_state.messages = []
+                    self.sendTextMsg("请发送新的迎新消息，发送完成后回复数字1", msg.sender)
+                    return True
+                else:
+                    self.sendTextMsg("无效的选择，请重新输入", msg.sender)
+                return True
+            except ValueError:
+                self.sendTextMsg("请输入有效的数字", msg.sender)
+                return True
+
+        elif operator_state.state == ForwardState.WELCOME_COLLECTING:
+            if msg.content == "1":  # 完成消息收集，保存并返回管理菜单
+                if not operator_state.messages:
+                    self.sendTextMsg("未收到任何消息，请重新发送", msg.sender)
+                    return True
+                
+                # 保存消息（在welcome_service.py中实现）
+                self.welcome_service.save_messages(operator_state.current_group, operator_state.messages, msg.sender)
+                
+                # 返回管理状态
+                operator_state.state = ForwardState.WELCOME_MANAGE
+                operator_state.messages = []
+                
+                # 显示菜单
+                self.welcome_service.show_menu(msg.sender)
+                return True
+                
+            # 收集消息（支持文本、图片、合并转发消息，具体处理在welcome_service.py中）
+            operator_state.messages.append(msg)
+            return True
 
         return False
     
