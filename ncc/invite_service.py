@@ -4,6 +4,7 @@ import os
 from typing import Dict, List, Optional
 from wcferry import Wcf
 from .notion_manager import NotionManager
+from threading import Thread
 
 logger = logging.getLogger(__name__)
 
@@ -115,20 +116,22 @@ class InviteService:
             # 获取目标群组
             target_groups = self.get_target_groups(keyword)
             if not target_groups:
-                logger.info(f"关键词 {keyword} 没有对应的目标群组")
                 return False
-                
-            # 邀请用户到所有目标群组
-            success = False
-            for group_id in target_groups:
-                result = self.wcf.invite_chatroom_members(group_id, user_wxid)
-                if result:
-                    success = True
-                    logger.info(f"邀请用户 {user_wxid} 到群 {group_id}")
-                else:
-                    logger.error(f"邀请用户 {user_wxid} 到群 {group_id} 失败")
-                    
-            return success
+            
+            # 创建后台线程处理邀请
+            def do_invite():
+                for group_id in target_groups:
+                    try:
+                        result = self.wcf.invite_chatroom_members(group_id, user_wxid)
+                        if result:
+                            logger.info(f"成功邀请用户 {user_wxid} 到群 {group_id}")
+                        else:
+                            logger.error(f"邀请用户 {user_wxid} 到群 {group_id} 失败")
+                    except Exception as e:
+                        logger.error(f"邀请用户到群 {group_id} 时发生错误: {e}")
+                        
+            Thread(target=do_invite, name="GroupInvite", daemon=True).start()
+            return True
             
         except Exception as e:
             logger.error(f"处理关键词邀请失败: {e}")

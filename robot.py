@@ -265,9 +265,7 @@ class Robot:
                     
                     # 3. 检测新成员加入
                     else:
-                        is_join, member_name = self.welcome_service.is_join_message(msg)
-                        if is_join:
-                            self.welcome_service.send_welcome(msg.roomid, member_name)
+                        self.welcome_service.handle_message(msg)
                 
                 else:  # 私聊系统消息
                     self.sayHiToNewFriend(msg)
@@ -279,7 +277,6 @@ class Robot:
                 if msg.roomid not in self.allowed_groups:
                     return
 
-                
                 # 处理允许群聊的文字消息
                 if msg.type == 0x01 and not msg.from_self():
                     # 1. 处理被艾特或问题消息
@@ -328,13 +325,19 @@ class Robot:
                 
             # 3. 处理关键词邀请
             if self.invite_service.handle_keyword(msg.content, msg.sender):
-                self.LOG.info(f"成功处理关键词邀请: {msg.content}")
+                #处理成功，返回
                 return
             
-            # 4. 其他文字消息交给 AI 处理
-            if msg.type == 0x01 and not msg.from_self():
+            # 4. 触发肥肉关键词交给 AI 处理
+            if "肥肉" in msg.content:
                 self.toAIchat(msg)
-
+                return
+            
+            # 5. 其他文字消息触发：hey～如果你想和肥肉聊天的话，发送内容需要包含“肥肉”哦～
+            else:
+                    self.sendTextMsg("hey～如果你想和肥肉聊天的话，发送内容需要包含“肥肉”哦～", msg.sender)
+                    return
+            
         except Exception as e:
             self.LOG.error(f"消息处理异常: {e}")
 
@@ -484,7 +487,7 @@ class Robot:
             if contacts and len(contacts) > 0:
                 return type('Friend', (), {
                     'wxid': wxid,
-                    'nickname': contacts[0]["NickName"]
+                    'nickname': contacts[wxid]
                 })
             return None
         except Exception as e:
@@ -493,12 +496,12 @@ class Robot:
 
     def sayHiToNewFriend(self, msg: WxMsg) -> None:
         """处理新好友入群后的欢迎消息"""
-        nickName = re.findall(r"你已添加了(.*)，现在可以开始聊天了。", msg.content)
-        if nickName:
-            # 添加了好友更新好友列表
-            self.allContacts[msg.sender] = nickName[0]
-            self.sendTextMsg(FRIEND_WELCOME_MSG, msg.sender)  
-
+        if "以上是打招呼的内容" in msg.content:
+            self.sendTextMsg(FRIEND_WELCOME_MSG, msg.sender)
+            # 发送飞书通知，添加了新好友，发送欢迎消息
+            if self.feishu_bot:
+                self.feishu_bot.notify("添加了新好友，发送欢迎消息", msg.sender, msg.content, msg.sender, False)
+                
     def newsReport(self) -> None:
         receivers = self.config.NEWS
         if not receivers:

@@ -14,7 +14,7 @@ class FastGPT:
         self.proxy = conf.get("proxy")
         self.prompt = conf.get("prompt")
         self.LOG = logging.getLogger("FastGPT")
-        logging.getLogger("httpx").setLevel(logging.WARNING)
+        
         
         # 初始化HTTP客户端，设置较长的超时时间（5分钟）
         self.timeout = httpx.Timeout(300.0, connect=60.0)  # 总超时300秒，连接超时60秒

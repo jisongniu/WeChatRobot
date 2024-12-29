@@ -8,9 +8,12 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import random
 import time
+from queue import Queue
+from threading import Lock
+import lz4.block as lb
+from .welcome_config import WelcomeConfig
+
 logging.basicConfig(level=logging.INFO)
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,52 @@ class WelcomeService:
         ]
         self.welcome_configs = {} 
         self.executor = ThreadPoolExecutor()  # 创建线程池
+        self.welcome_manager = WelcomeConfig()  # 新的迎新消息管理器
+        self.message_queues: Dict[str, Queue] = {}  # 每个操作者的消息队列
+        self.message_queue_lock = Lock()  # 用于保护message_queues的锁
+
+    def _get_message_queue(self, operator: str) -> Queue:
+        """获取或创建操作者的消息队列"""
+        with self.message_queue_lock:
+            if operator not in self.message_queues:
+                self.message_queues[operator] = Queue()
+            return self.message_queues[operator]
+
+    def _remove_message_queue(self, operator: str) -> None:
+        """移除操作者的消息队列"""
+        with self.message_queue_lock:
+            if operator in self.message_queues:
+                del self.message_queues[operator]
+
+    def handle_message(self, msg: WxMsg) -> bool:
+        """处理收到的消息"""
+        # 如果发送者有消息队列，说明正在等待消息
+        queue = self.message_queues.get(msg.sender)
+        if queue:
+            queue.put(msg)
+            return True
+
+        # 检查是否是入群消息
+        if msg.type == 10000 and msg.from_group():
+            is_join, member_name = self.is_join_message(msg)
+            if is_join:
+                return self.send_welcome(msg.roomid, member_name)
+
+        return False
+
+    def _wait_for_next_message(self, operator: str, timeout: int = 60) -> Optional[WxMsg]:
+        """等待下一条消息"""
+        queue = self._get_message_queue(operator)
+        try:
+            # 等待消息，超时返回None
+            msg = queue.get(timeout=timeout)
+            return msg
+        except:
+            return None
+        finally:
+            # 如果队列为空，移除它
+            if queue.empty():
+                self._remove_message_queue(operator)
 
     def load_groups_from_local(self) -> List[dict]:
         """从本地加载群组数据并解析欢迎配置"""
@@ -62,15 +111,20 @@ class WelcomeService:
             welcome_enabled = properties.get('迎新推送开关', {}).get('checkbox', False)
             welcome_url = properties.get('迎新推送链接', {}).get('url')
 
-            # 只有当 welcome_enabled 为 True 且有 welcome_url 时才会添加到配置中        
-            if welcome_enabled and welcome_url and group_wxid:
-                self.welcome_configs[group_wxid] = welcome_url
-                logger.debug(f"加载群 {group_name}({group_wxid}) 的欢迎配置")
+            # 如果群ID存在且开启了迎新推送
+            if group_wxid and welcome_enabled:
+                # 如果有文章链接，添加到小卡片迎新推送配置
+                if welcome_url:
+                    self.welcome_configs[group_wxid] = welcome_url
+                    logger.debug(f"加载群 {group_name}({group_wxid}) 的迎新小卡片")
+                
+                # 返回群信息（只要开启了迎新推送就返回）
+                return {
+                    'wxid': group_wxid,
+                    'name': group_name,
+                }
             
-            return {
-                'wxid': group_wxid,
-                'name': group_name,
-            } if group_wxid else None
+            return None
             
         except Exception as e:
             logger.error(f"解析群组信息失败: {e}")
@@ -81,9 +135,6 @@ class WelcomeService:
         判断是否是入群消息，并提取新成员昵称
         返回: (是否入群消息, 新成员昵称)
         """
-        if msg.type != 10000:  # 系统消息类型
-            return False, ""
-        
         for pattern in self.welcome_patterns:
             if match := re.search(pattern, msg.content):
                 # 去掉昵称中的引号
@@ -92,17 +143,18 @@ class WelcomeService:
         return False, ""
 
     def send_welcome(self, group_id: str, member_name: str) -> bool:
-        """发送非阻塞地发送欢迎消息"""
-        # 检查welcome_enabled（迎新推送开关）是否打开，url是否为空
+        """发送欢迎消息（同时发送公众号文章和自定义迎新消息）"""
+        # 发送公众号文章
+        article_sent = False
         welcome_url = self.welcome_configs.get(group_id)
-
-        # 如果未配置欢迎url，则不发送欢迎消息
-        if not welcome_url:
-            return False
-
-        # 在新线程中执行延迟发送
-        self.executor.submit(self._delayed_send_welcome, group_id, welcome_url, member_name)
-        return True
+        if welcome_url:
+            self.executor.submit(self._delayed_send_welcome, group_id, welcome_url, member_name)
+            article_sent = True
+        
+        # 发送自定义迎新消息
+        custom_sent = self.send_custom_welcome(group_id, member_name)
+        
+        return article_sent or custom_sent  # 只要有一个发送成功就返回True
 
     def _delayed_send_welcome(self, group_id: str, welcome_url: str, member_name: str) -> None:
         """在单独的线程中处理延迟发送"""
@@ -123,7 +175,7 @@ class WelcomeService:
                 name="NCC社区",
                 account="gh_0b00895e7394",
                 title=f"🐶肥肉摇尾巴欢迎{member_name}！点开看看",
-                digest=f"我是ncc团宠肥肉～\n这里是在地信息大全\n日常更新哦",
+                digest=f"我是ncc团宠肥肉～\n这里是在地信息大全\n要一条一条看哦",
                 url=welcome_url,
                 thumburl="https://pic.imgdb.cn/item/6762f60ed0e0a243d4e62f84.png"
             )
@@ -153,3 +205,155 @@ class WelcomeService:
         except Exception as e:
             logger.error(f"提取title值失败: {e}")
         return ""
+
+    def manage_welcome_messages(self, group_id: str, operator: str) -> None:
+        """管理群的迎新消息"""
+        try:
+            while True:
+                menu = (
+                    "\n迎新消息管理：\n"
+                    "1 👈 查看当前迎新消息\n"
+                    "2 👈 设置新的迎新消息\n"
+                    "0 👈 退出"
+                )
+                self.wcf.send_text(menu, operator)
+                
+                msg = self._wait_for_next_message(operator)
+                if not msg:
+                    continue
+                    
+                if msg.content == "0":
+                    self.wcf.send_text("已退出迎新消息管理", operator)
+                    break
+                elif msg.content == "1":
+                    self._show_current_messages(group_id, operator)
+                elif msg.content == "2":
+                    self._set_new_messages(group_id, operator)
+        finally:
+            # 清理消息队列
+            self._remove_message_queue(operator)
+
+    def _show_current_messages(self, group_id: str, operator: str) -> None:
+        """显示当前迎新消息"""
+        config = self.welcome_manager.get_welcome_messages(group_id)
+        if not config:
+            self.wcf.send_text("当前群未设置迎新消息", operator)
+            return
+
+        # 发送所有消息
+        for msg in config["messages"]:
+            if msg["type"] == "text":
+                self.wcf.send_text(msg["content"], operator)
+            elif msg["type"] == "image":
+                self.wcf.send_image(operator, msg["path"])
+            elif msg["type"] == "merged":
+                self._send_merged_msg(operator, msg["recorditem"])
+
+        # 再发送提示信息
+        self.wcf.send_text(
+            f"当前迎新消息由 {config['operator']} 创建于 {config['update_time']}，如果需要修改，请回复2",
+            operator
+        )
+        
+    def _set_new_messages(self, group_id: str, operator: str) -> None:
+        """设置新的迎新消息"""
+        messages = []
+        self.wcf.send_text(
+            "请发送要设置的迎新消息，支持：文本消息、图片、合并转发信息\n"
+            "支持发送多条消息，设置完成后将覆盖已有配置\n"
+            "发送完成后回复“完成”保存",
+            operator
+        )
+        
+        try:
+            while True:
+                msg = self._wait_for_next_message(operator)
+                if not msg:
+                    continue
+                    
+                if msg.content == "完成":
+                    break
+                    
+                if msg.type == 0x01:  # 文本消息
+                    messages.append({"type": "text", "content": msg.content})
+                elif msg.type == 0x03:  # 图片消息
+                    image_path = self.wcf.get_message_image(msg)
+                    if image_path:
+                        messages.append({"type": "image", "path": image_path})
+                    else:
+                        self.wcf.send_text("图片保存失败！", operator)
+                elif msg.type == 0x49:  # 合并转发消息
+                    messages.append({"type": "merged", "recorditem": msg.content})
+                else:
+                    self.wcf.send_text("不支持的消息类型！", operator)
+                    continue
+
+                self.wcf.send_text(f"已收集 {len(messages)} 条消息，继续发送或回复“完成”保存", operator)
+
+            if messages:
+                self.welcome_manager.set_welcome_messages(group_id, messages, operator)
+                self.wcf.send_text("迎新消息设置成功！", operator)
+            else:
+                self.wcf.send_text("未收集到任何消息，设置取消！", operator)
+        finally:
+            # 清理消息队列
+            self._remove_message_queue(operator)
+
+    def send_custom_welcome(self, group_id: str, member_name: str) -> bool:
+        """发送自定义迎新消息"""
+        config = self.welcome_manager.get_welcome_messages(group_id)
+        if not config:
+            return False
+
+        try:
+            for msg in config["messages"]:
+                if msg["type"] == "text":
+                    self.wcf.send_text(group_id, msg["content"].replace("{member_name}", member_name))
+                elif msg["type"] == "image":
+                    self.wcf.send_image(group_id, msg["path"])
+                elif msg["type"] == "merged":
+                    self._send_merged_msg(group_id, msg["recorditem"])
+            return True
+        except Exception as e:
+            logger.error(f"发送自定义迎新消息失败: {e}")
+            return False
+
+    def _send_merged_msg(self, target: str, recorditem: str) -> bool:
+        """发送合并转发消息"""
+        try:
+            xml_msg = f"""<?xml version="1.0"?>
+<msg>
+    <appmsg appid="" sdkver="0">
+        <title>聊天记录</title>
+        <des>聊天记录</des>
+        <type>19</type>
+        <url>https://support.weixin.qq.com/cgi-bin/mmsupport-bin/readtemplate?t=page/favorite_record__w_unsupport</url>
+        <appattach>
+            <cdnthumbaeskey></cdnthumbaeskey>
+            <aeskey></aeskey>
+        </appattach>
+        <recorditem><![CDATA[{recorditem}]]></recorditem>
+        <percent>0</percent>
+    </appmsg>
+</msg>"""
+
+            text_bytes = xml_msg.encode('utf-8')
+            compressed_data = lb.compress(text_bytes, store_size=False)
+            compressed_data_hex = compressed_data.hex()
+
+            data = self.wcf.query_sql('MSG0.db', "SELECT * FROM MSG where type = 49 limit 1")
+            if not data:
+                logger.error("未找到合适的消息模板")
+                return False
+
+            self.wcf.query_sql(
+                'MSG0.db',
+                f"UPDATE MSG SET CompressContent = x'{compressed_data_hex}', BytesExtra=x'', type=49, SubType=19, IsSender=0, TalkerId=2 WHERE MsgSvrID={data[0]['MsgSvrID']}"
+            )
+
+            result = self.wcf.forward_msg(data[0]["MsgSvrID"], target)
+            return result == 1
+
+        except Exception as e:
+            logger.error(f"发送合并消息时发生错误：{e}")
+            return False

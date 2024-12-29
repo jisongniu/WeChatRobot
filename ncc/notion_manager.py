@@ -55,11 +55,10 @@ class NotionManager:
         self.config = config  # 保存配置对象
         self.notion = Client(auth=token)
         
-        # 格式化数据库 ID
-        self.lists_db_id = self._format_db_id(lists_db_id)
-        self.groups_db_id = self._format_db_id(groups_db_id)
-        self.admins_db_id = self._format_db_id(admins_db_id)
-        self.keywords_db_id = self._format_db_id(keywords_db_id)
+        self.lists_db_id = lists_db_id
+        self.groups_db_id = groups_db_id
+        self.admins_db_id = admins_db_id
+        self.keywords_db_id = keywords_db_id
         
         self.local_data_path = "data/notion_cache.json"
         self.welcome_groups = {}  # {group_wxid: welcome_url}
@@ -472,7 +471,6 @@ class NotionManager:
         except Exception as e:
             logger.error(f"获取管理员称呼列表失败: {e}")
             return []
-
     def update_notion_data(self) -> bool:
         """更新 Notion 数据并刷新相关运行时数据"""
         try:
@@ -526,3 +524,4 @@ class NotionManager:
         except Exception as e:
             logger.error(f"更新 Notion 数据失败: {e}")
             return False
+

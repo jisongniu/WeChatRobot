@@ -268,6 +268,9 @@ class MusicService:
                 
                 result = self.wcf.forward_msg(data[0]["MsgSvrID"], room_id)
                 logger.info(f"点歌发送结果: {result}")
+                # 发送飞书通知，点歌成功
+                if self.feishu_bot:
+                    self.feishu_bot.notify("点歌成功", room_id, song_name, room_id, False)
                 return True
 
             return False

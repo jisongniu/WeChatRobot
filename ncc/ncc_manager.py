@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from queue import Queue
 import threading
+from .welcome_service import WelcomeService
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,8 @@ class ForwardState(Enum):
     WAITING_CHOICE_MODE = "waiting_choice_mode"
     WAITING_MESSAGE = "waiting_message"
     WAITING_CHOICE = "waiting_choice"
+    WELCOME_MANAGE = "welcome_manage"  # 迎新消息管理状态
+    WELCOME_GROUP_CHOICE = "welcome_group_choice"  # 选择要管理迎新消息的群
 
 @dataclass
 class OperatorState:
@@ -27,6 +30,7 @@ class OperatorState:
     state: ForwardState = ForwardState.IDLE
     list_id: Optional[int] = None
     messages: List[WxMsg] = None
+    current_group: Optional[str] = None  # 当前正在管理迎新消息的群ID
 
     def __post_init__(self):
         if self.messages is None:
@@ -36,6 +40,7 @@ class NCCManager:
     def __init__(self, notion_manager: NotionManager, wcf):
         self.notion_manager = notion_manager
         self.wcf = wcf
+        self.welcome_service = WelcomeService(wcf)  # 初始化迎新服务
         self.images_dir = os.path.join(os.path.dirname(__file__), "ncc_images")
         if not os.path.exists(self.images_dir):
             os.makedirs(self.images_dir)
@@ -60,8 +65,9 @@ class NCCManager:
             "请回复指定数字\n"
             "1 👈 转发消息\n"
             "2 👈 同步 Notion 更改\n"
-            "3 👈 查看群聊列表信息\n"
+            "3 👈 查看 Notion 后台\n"
             "4 👈 查看团队成员\n"
+            "5 👈 迎新消息管理\n"
             "0 👈 退出管理模式"
         )
         self.sendTextMsg(menu, receiver)
@@ -98,7 +104,22 @@ class NCCManager:
             return True
 
         if operator_state.state == ForwardState.WAITING_CHOICE_MODE:
-            if msg.content == "2":
+            if msg.content == "5":  # 处理迎新消息管理选项
+                operator_state.state = ForwardState.WELCOME_GROUP_CHOICE
+                # 获取所有启用了迎新推送的群组
+                groups = self.welcome_service.load_groups_from_local()
+                if not groups:
+                    self.sendTextMsg("未找到启用迎新推送的群组，请先在Notion的群管理页面开启迎新推送开关", msg.sender)
+                    self._reset_operator_state(msg.sender)
+                    return True
+                
+                response = "所有开启迎新推送的群聊列表：\n（迎新消息开关请在Notion的群管理页面操作）\n\n"
+                for i, group in enumerate(groups, 1):
+                    response += f"{i} 👈 {group['name']}\n"
+                response += "\n请回复数字选择要管理的群聊，回复0退出"
+                self.sendTextMsg(response, msg.sender)
+                return True
+            elif msg.content == "2":
                 self.notion_manager.update_notion_data()
                 # 发送菜单以供选择
                 self.sendTextMsg("同步成功，请选择操作", msg.sender)
@@ -214,6 +235,30 @@ class NCCManager:
                 self.sendTextMsg("请输入有效的选项，或发送【0】退出转发模式", msg.sender)
                 return True
                 
+        elif operator_state.state == ForwardState.WELCOME_GROUP_CHOICE:
+            try:
+                choice = int(msg.content)
+                if choice == 0:
+                    self._reset_operator_state(msg.sender)
+                    self.sendTextMsg("已退出迎新消息管理", msg.sender)
+                    return True
+
+                groups = self.welcome_service.load_groups_from_local()
+                if 1 <= choice <= len(groups):
+                    group = groups[choice - 1]
+                    operator_state.current_group = group['wxid']
+                    operator_state.state = ForwardState.WELCOME_MANAGE
+                    # 调用迎新消息管理功能
+                    self.welcome_service.manage_welcome_messages(group['wxid'], msg.sender)
+                    # 完成后重置状态
+                    self._reset_operator_state(msg.sender)
+                else:
+                    self.sendTextMsg("无效的选择，请重新输入", msg.sender)
+                return True
+            except ValueError:
+                self.sendTextMsg("请输入有效的数字", msg.sender)
+                return True
+
         return False
     
     def _forward_message(self, msg: WxMsg, receiver: str) -> bool:
