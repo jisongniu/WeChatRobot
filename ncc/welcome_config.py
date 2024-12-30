@@ -18,6 +18,12 @@ class WelcomeConfig:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     self.configs = json.load(f)
+                    # 处理所有合并转发消息，确保内容不被转义
+                    for group_config in self.configs.values():
+                        for msg in group_config.get("messages", []):
+                            if msg.get("type") == "merged":
+                                # 将转义后的字符还原
+                                msg["recorditem"] = msg["recorditem"].encode().decode('unicode_escape')
         except Exception as e:
             logger.error(f"加载迎新配置失败: {e}")
             self.configs = {}
@@ -26,8 +32,23 @@ class WelcomeConfig:
         """保存配置到文件"""
         try:
             os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+            
+            # 创建配置的副本，避免修改原始数据
+            configs_copy = {}
+            for group_id, group_config in self.configs.items():
+                group_copy = group_config.copy()
+                messages_copy = []
+                for msg in group_config["messages"]:
+                    msg_copy = msg.copy()
+                    if msg["type"] == "merged":
+                        # 对recorditem内容进行特殊处理，确保正确保存
+                        msg_copy["recorditem"] = msg["recorditem"].replace('\\', '\\\\').replace('"', '\\"')
+                    messages_copy.append(msg_copy)
+                group_copy["messages"] = messages_copy
+                configs_copy[group_id] = group_copy
+
             with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(self.configs, f, ensure_ascii=False, indent=2)
+                json.dump(configs_copy, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"保存迎新配置失败: {e}")
 

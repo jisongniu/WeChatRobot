@@ -36,7 +36,7 @@ class WelcomeService:
         """显示当前迎新消息"""
         config = self.welcome_manager.get_welcome_messages(group_id)
         if not config:
-            self.wcf.send_text("当前群未设置迎新消息", operator)
+            self.wcf.send_text("当前群未设置迎新消息，如需设置，请回复2", operator)
             return
 
         # 发送所有消息
@@ -72,16 +72,15 @@ class WelcomeService:
                     saved_messages.append({"type": "image", "path": image_path})
             elif msg.type == 49:  # 合并转发消息
                 try:
-                    import xml.etree.ElementTree as ET
-                    root = ET.fromstring(msg.content)
-                    recorditem = root.find('.//recorditem')
-                    if recorditem is not None:
-                        # 获取完整的recorditem内容
-                        recorditem_str = ET.tostring(recorditem, encoding='unicode')
-                        # 提取<recorditem>标签内的内容
-                        content = recorditem_str.replace('<recorditem>', '').replace('</recorditem>', '')
-                        if content:
-                            saved_messages.append({"type": "merged", "recorditem": content})
+                    # 直接使用字符串查找方式提取recorditem内容
+                    start = msg.content.find("<recorditem><![CDATA[")
+                    if start != -1:
+                        start += len("<recorditem><![CDATA[")
+                        end = msg.content.find("]]></recorditem>", start)
+                        if end != -1:
+                            recorditem = msg.content[start:end]
+                            if recorditem:
+                                saved_messages.append({"type": "merged", "recorditem": recorditem})
                 except Exception as e:
                     logger.error(f"处理合并转发消息失败: {e}")
 
@@ -190,18 +189,31 @@ class WelcomeService:
         <recorditem><![CDATA[{recorditem}]]></recorditem>
         <thumburl></thumburl>
         <messageaction></messageaction>
+        <extinfo></extinfo>
+        <sourceusername></sourceusername>
+        <sourcedisplayname></sourcedisplayname>
+        <commenturl></commenturl>
         <appattach>
             <totallen>0</totallen>
             <attachid></attachid>
             <emoticonmd5></emoticonmd5>
             <fileext></fileext>
+            <cdnthumburl></cdnthumburl>
             <cdnthumbaeskey></cdnthumbaeskey>
             <aeskey></aeskey>
+            <encryver>0</encryver>
+            <filekey></filekey>
         </appattach>
-        <extinfo></extinfo>
-        <sourceusername></sourceusername>
-        <sourcedisplayname></sourcedisplayname>
-        <commenturl></commenturl>
+        <weappinfo>
+            <pagepath></pagepath>
+            <username></username>
+            <appid></appid>
+            <version>0</version>
+            <type>0</type>
+            <weappiconurl></weappiconurl>
+            <shareId></shareId>
+            <appservicetype>0</appservicetype>
+        </weappinfo>
     </appmsg>
     <fromusername></fromusername>
     <scene>0</scene>
@@ -210,6 +222,10 @@ class WelcomeService:
         <appname></appname>
     </appinfo>
     <commenturl></commenturl>
+    <realchatname></realchatname>
+    <chatname></chatname>
+    <membercount>0</membercount>
+    <chatroomtype>0</chatroomtype>
 </msg>"""
 
             # 压缩XML消息
