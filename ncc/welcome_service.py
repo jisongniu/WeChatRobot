@@ -2,12 +2,12 @@ import re
 import logging
 from typing import Optional, List, Dict
 import os
-import json
+import sqlite3
 from wcferry import Wcf, WxMsg
 import random
 import time
 import lz4.block as lb
-from .welcome_config import WelcomeConfig
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,8 +19,101 @@ class WelcomeService:
             r"邀请(.+)加入了群聊",
             r"(.+)通过扫描二维码加入群聊",
         ]
-        self.welcome_configs = {}
-        self.welcome_manager = WelcomeConfig()
+        self._init_db()
+
+    def _init_db(self):
+        """初始化数据库"""
+        db_path = os.path.join(os.path.dirname(__file__), "welcome_messages.db")
+        self.db_path = db_path
+        
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            # 创建消息表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS welcome_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT NOT NULL,
+                    message_type TEXT NOT NULL,
+                    content TEXT,
+                    path TEXT,
+                    recorditem TEXT,
+                    operator TEXT NOT NULL,
+                    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            # 创建欢迎小卡片URL表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS welcome_urls (
+                    group_id TEXT PRIMARY KEY,
+                    welcome_url TEXT NOT NULL,
+                    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+
+    def get_welcome_messages(self, group_id: str) -> Optional[Dict]:
+        """从数据库获取群的迎新消息"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT message_type, content, path, recorditem, operator, update_time 
+                    FROM welcome_messages 
+                    WHERE group_id = ? 
+                    ORDER BY id ASC
+                """, (group_id,))
+                rows = cursor.fetchall()
+                
+                if not rows:
+                    return None
+                    
+                messages = []
+                for row in rows:
+                    msg_type, content, path, recorditem, operator, update_time = row
+                    if msg_type == "text":
+                        messages.append({"type": "text", "content": content})
+                    elif msg_type == "image":
+                        messages.append({"type": "image", "path": path})
+                    elif msg_type == "merged":
+                        messages.append({"type": "merged", "recorditem": recorditem})
+                
+                return {
+                    "messages": messages,
+                    "operator": operator,
+                    "update_time": update_time
+                }
+                
+        except Exception as e:
+            logger.error(f"获取迎新消息失败: {e}")
+            return None
+
+    def set_welcome_messages(self, group_id: str, messages: List[Dict], operator: str) -> bool:
+        """设置群的迎新消息"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                # 先删除旧的消息
+                cursor.execute("DELETE FROM welcome_messages WHERE group_id = ?", (group_id,))
+                
+                # 插入新的消息
+                for msg in messages:
+                    msg_type = msg["type"]
+                    content = msg.get("content")
+                    path = msg.get("path")
+                    recorditem = msg.get("recorditem")
+                    
+                    cursor.execute("""
+                        INSERT INTO welcome_messages 
+                        (group_id, message_type, content, path, recorditem, operator) 
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (group_id, msg_type, content, path, recorditem, operator))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            logger.error(f"设置迎新消息失败: {e}")
+            return False
 
     def show_menu(self, operator: str) -> None:
         """显示迎新消息管理菜单"""
@@ -34,7 +127,7 @@ class WelcomeService:
 
     def show_current_messages(self, group_id: str, operator: str) -> None:
         """显示当前迎新消息"""
-        config = self.welcome_manager.get_welcome_messages(group_id)
+        config = self.get_welcome_messages(group_id)
         if not config:
             self.wcf.send_text("当前群未设置迎新消息，如需设置，请回复2", operator)
             return
@@ -84,7 +177,7 @@ class WelcomeService:
                 except Exception as e:
                     logger.error(f"处理合并转发消息失败: {e}")
 
-        self.welcome_manager.set_welcome_messages(group_id, saved_messages, operator)
+        self.set_welcome_messages(group_id, saved_messages, operator)
         self.wcf.send_text("✅ 迎新消息设置成功！", operator)
 
     def is_join_message(self, msg: WxMsg) -> tuple[bool, str]:
@@ -119,7 +212,7 @@ class WelcomeService:
             time.sleep(delay)
 
             # 如果有welcome_url，先发送小卡片
-            welcome_url = self.welcome_configs.get(group_id)
+            welcome_url = self.get_welcome_url(group_id)
             if welcome_url:
                 self._send_welcome_message(group_id, welcome_url, member_name)
 
@@ -129,7 +222,7 @@ class WelcomeService:
             time.sleep(delay)
 
             # 获取群的迎新消息配置
-            welcome_config = self.welcome_manager.get_welcome_messages(group_id)
+            welcome_config = self.get_welcome_messages(group_id)
             if welcome_config:
                 # 发送自定义迎新消息
                 messages = welcome_config.get("messages", [])
@@ -261,7 +354,6 @@ class WelcomeService:
             with open(groups_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 
-            self.welcome_configs.clear()  # 清空现有缓存
             return self._parse_groups_data(data.get('groups', []))
                 
         except Exception as e:
@@ -290,9 +382,9 @@ class WelcomeService:
 
             # 如果群ID存在且开启了迎新推送
             if group_wxid and welcome_enabled:
-                # 如果有文章链接，添加到小卡片迎新推送配置
+                # 如果有文章链接，保存到数据库
                 if welcome_url:
-                    self.welcome_configs[group_wxid] = welcome_url
+                    self.set_welcome_url(group_wxid, welcome_url)
                     logger.debug(f"加载群 {group_name}({group_wxid}) 的迎新小卡片")
                 
                 # 返回群信息（只要开启了迎新推送就返回）
@@ -326,3 +418,33 @@ class WelcomeService:
         except Exception as e:
             logger.error(f"提取title值失败: {e}")
         return ""
+
+    def get_welcome_url(self, group_id: str) -> Optional[str]:
+        """从数据库获取群的欢迎小卡片URL"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT welcome_url FROM welcome_urls WHERE group_id = ?",
+                    (group_id,)
+                )
+                result = cursor.fetchone()
+                return result[0] if result else None
+        except Exception as e:
+            logger.error(f"获取欢迎小卡片URL失败: {e}")
+            return None
+
+    def set_welcome_url(self, group_id: str, welcome_url: str) -> bool:
+        """设置群的欢迎小卡片URL到数据库"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO welcome_urls (group_id, welcome_url)
+                    VALUES (?, ?)
+                """, (group_id, welcome_url))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"设置欢迎小卡片URL失败: {e}")
+            return False

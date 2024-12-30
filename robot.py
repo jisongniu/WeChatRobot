@@ -269,6 +269,7 @@ class Robot:
                 
                 else:  # 私聊系统消息
                     self.sayHiToNewFriend(msg)
+                    
                 return
             
             # 4. 处理群聊消息
