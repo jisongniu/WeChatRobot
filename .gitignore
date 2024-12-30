@@ -1,21 +1,21 @@
+# IDE and Editor files
 .*
 !.gitignore
 !.github/
 .cursorrules
 
+# Python
 *pyc
-__pycache__
+__pycache__/
 
+# Logs
 logs/
 *.log
 *.log.*
 
+# Configuration
 config.yaml
 
-# test files
+# Debug and test files
 debug/
 debug.*
-**/debug/
-**/debug.*
-debug/
-debug/
