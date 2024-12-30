@@ -91,8 +91,8 @@ class NotionManager:
                 group_name = page['properties'].get('群名', {}).get('title', [{}])[0].get('text', {}).get('content', '')
                 wxid_texts = page['properties'].get('group_wxid', {}).get('rich_text', [])
                 wxid = wxid_texts[0]['text']['content'] if wxid_texts else None
-                welcome_enabled = bool(page['properties'].get('迎新推送', {}).get('checkbox', False))
-                welcome_url = page['properties'].get('迎新推送链接', {}).get('url')
+                welcome_enabled = bool(page['properties'].get('自定义迎新消息', {}).get('checkbox', False))
+                welcome_url = page['properties'].get('迎新推送链接（填写后视为开启）', {}).get('url')
                 allow_forward = bool(page['properties'].get('允许转发', {}).get('checkbox', False))
                 allow_speak = bool(page['properties'].get('允许发言', {}).get('checkbox', False))
                 
@@ -246,9 +246,9 @@ class NotionManager:
             else:
                 # 创建新页面
                 properties.update({
-                    "迎新推送": {"checkbox": True},
+                    "自定义迎新消息": {"checkbox": False},
                     "允许转发": {"checkbox": True},
-                    "允许发言": {"checkbox": True}
+                    "允许发言": {"checkbox": False}
                 })
                 self.notion.pages.create(
                     parent={"database_id": self.groups_db_id},

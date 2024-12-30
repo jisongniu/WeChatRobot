@@ -133,6 +133,10 @@ class DatabaseManager:
             try:
                 cur = conn.cursor()
                 for group in groups:
+                    # 添加调试日志
+                    welcome_enabled = group.get('welcome_enabled', 0)
+                    logger.warning(f"更新群组 {group['name']} 的迎新推送值: {welcome_enabled}, 类型: {type(welcome_enabled)}")
+                    
                     # 更新群组基本信息
                     cur.execute('''
                         INSERT OR REPLACE INTO groups 
@@ -141,9 +145,9 @@ class DatabaseManager:
                     ''', (
                         group['wxid'], 
                         group['name'], 
-                        group.get('welcome_enabled', 0),
-                        group.get('allow_forward', 0),
-                        group.get('allow_speak', 0),
+                        1 if welcome_enabled else 0,  # 确保布尔值被正确转换为整数
+                        1 if group.get('allow_forward', 0) else 0,
+                        1 if group.get('allow_speak', 0) else 0,
                         group.get('welcome_url')
                     ))
                     
