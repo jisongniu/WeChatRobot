@@ -78,6 +78,34 @@ class NCCManager:
         # 添加调试日志
         #logger.info(f"handle_message 收到消息: type={msg.type}, content={msg.content}")
         
+        # 处理多命令输入
+        if "，" in msg.content or "," in msg.content:
+            commands = msg.content.replace("，", ",").split(",")
+            commands = [cmd.strip() for cmd in commands]  # 去除空格
+            
+            # 第一个命令必须是ncc
+            if commands[0].lower() != "ncc":
+                return False
+                
+            # 获取操作者状态
+            operator_state = self._get_operator_state(msg.sender)
+            
+            # 检查权限
+            admin_wxids = self.notion_manager.get_admins_wxid()
+            if msg.sender not in admin_wxids:
+                self.sendTextMsg("对不起，你未开通ncc管理权限，私聊大松获取。", msg.sender)
+                return False
+            
+            # 设置初始状态
+            operator_state.state = ForwardState.WAITING_CHOICE_MODE
+            
+            # 依次处理每个命令
+            for command in commands[1:]:
+                msg.content = command  # 修改消息内容
+                if not self._handle_forward_state(msg, operator_state):
+                    break
+            return True
+        
         if msg.content.lower() == "ncc":
             admin_wxids = self.notion_manager.get_admins_wxid()
             if msg.sender in admin_wxids:
@@ -277,16 +305,16 @@ class NCCManager:
                     self.sendTextMsg("请发送新的迎新消息，发送完成后回复数字1", msg.sender)
                     return True
                 else:
-                    self.sendTextMsg("无效的选择，请重新输入", msg.sender)
+                    self.sendTextMsg("无效的选择，请重新输入。退出请回复0", msg.sender)
                 return True
             except ValueError:
-                self.sendTextMsg("请输入有效的数字", msg.sender)
+                self.sendTextMsg("请输入有效的数字。退出请回复0", msg.sender)
                 return True
 
         elif operator_state.state == ForwardState.WELCOME_COLLECTING:
             if msg.content == "1":  # 完成消息收集，保存并返回管理菜单
                 if not operator_state.messages:
-                    self.sendTextMsg("未收到任何消息，请重新发送", msg.sender)
+                    self.sendTextMsg("未收到任何消息，请重新发送，退出请回复0", msg.sender)
                     return True
                 
                 # 保存消息（在welcome_service.py中实现）
