@@ -94,9 +94,10 @@ class FeishuBot:
                 
             # 获取接收者和发送者信息
             if is_group and receiver:
-                # 从 notion_manager 获取群名映射
-                groups_info = self.notion_manager.get_groups_info() if self.notion_manager else {}
-                # 反转映射，找到群ID对应的群名
+                # 从 db_manager 获取群名映射
+                groups = self.notion_manager.db.get_speak_enabled_groups() if self.notion_manager else []
+                groups_info = {group['name']: group['wxid'] for group in groups}
+                # 找到群ID对应的群名
                 group_name = receiver
                 for name, wxid in groups_info.items():
                     if wxid == receiver:

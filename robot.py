@@ -3,11 +3,11 @@
 import logging
 import re
 import time
-import xml.etree.ElementTree as ET
+import random  
+import os
+import json
 from queue import Empty
 from threading import Thread
-# from base.func_zhipu import ZhiPu  # 不需要zhipu的话就不用
-from enum import Enum, auto
 from typing import List, Optional
 
 from wcferry import Wcf, WxMsg
@@ -16,22 +16,20 @@ from base.func_bard import BardAssistant
 from base.func_chatglm import ChatGLM
 from base.func_chatgpt import ChatGPT
 from base.func_chengyu import cy
-from base.func_fastgpt import FastGPT  # 添加FastGPT导入
-from base.func_news import News
+from base.func_fastgpt import FastGPT
 from base.func_tigerbot import TigerBot
 from base.func_xinghuo_web import XinghuoWeb
+from base.func_music import MusicService
+from base.func_feishu import FeishuBot
+
 from configuration import Config
-from constants import ChatType, MIN_ACCEPT_DELAY, MAX_ACCEPT_DELAY, FRIEND_WELCOME_MSG
+from constants import ChatType, FRIEND_WELCOME_MSG
 from job_mgmt import JobManager
 from ncc.notion_manager import NotionManager
 from ncc.ncc_manager import NCCManager, ForwardState
-from ncc.welcome_service import WelcomeService  # 添加导入
-from ncc.invite_group import InviteService  # 添加导入
-import random  
-import os
-from base.func_music import MusicService
-from base.func_feishu import FeishuBot  # 添加导入
-import json
+from ncc.welcome_service import WelcomeService
+from ncc.invite_group import InviteService
+from ncc.db_manager import DatabaseManager
 
 __version__ = "39.3.3.2"
 
@@ -61,6 +59,10 @@ class Robot:
         # 确保数据目录存在
         os.makedirs("data", exist_ok=True)
         
+        # 初始化数据库管理器
+        self.db = DatabaseManager()
+        
+        # 初始化 Notion 管理器
         self.notion_manager = NotionManager(
             token=config.NOTION["TOKEN"],
             lists_db_id=config.NOTION["LISTS_DB_ID"],
@@ -68,18 +70,25 @@ class Robot:
             admins_db_id=config.NOTION["ADMINS_DB_ID"],
             keywords_db_id=config.NOTION["KEYWORDS_DB_ID"],
             wcf=self.wcf,
-            config=config
-        )
+            config=config)
         
         # 初始化时更新一次 Notion 数据
-        self.notion_manager.update_notion_data()
-        # 初始化允许的群组列表
-        self.allowed_groups = self.notion_manager.get_all_allowed_groups()
+        self.notion_manager.fetch_notion_data()
         
+        # 初始化允许的群组列表
+        speak_enabled_groups = self.db.get_speak_enabled_groups()
+        self.allowed_groups = [group['wxid'] for group in speak_enabled_groups]
+        
+        # 初始化 NCC 管理器
         self.ncc_manager = NCCManager(
+            robot=self,
             notion_manager=self.notion_manager,
-            wcf=self.wcf
-        )
+            wcf=self.wcf)
+        
+        # 初始化关键词邀请服务
+        self.invite_service = InviteService(
+            wcf=self.wcf,
+            notion_manager=self.notion_manager)
 
         # 初始化飞书机器人
         self.feishu_bot = None
@@ -88,8 +97,7 @@ class Robot:
                 self.config.FEISHU_BOT["webhook"],
                 wcf,
                 self.notion_manager,
-                self.ncc_manager
-            )
+                self.ncc_manager)
         
         # 添加 WelcomeService 初始化
         self.welcome_service = WelcomeService(wcf=self.wcf)
@@ -133,8 +141,6 @@ class Robot:
             else:
                 self.LOG.warning("未配置模型")
                 self.chat = None
-
-        self.invite_service = InviteService(wcf=self.wcf, notion_manager=self.notion_manager)
 
     def toChengyu(self, msg: WxMsg) -> bool:
         """
@@ -190,26 +196,17 @@ class Robot:
                     self.feishu_bot.notify(rsp, msg.sender, msg.content, msg.sender, False)
             return True  # 返回处理成功
         else:  # 如果没有获取到回复，记录错误日志
-            self.LOG.error(f"无法从配置的LLm模型获得答案")
+            self.LOG.error("无法从配置的LLm模型获得答案")
             return False  # 返回处理失败
-        
-        
-
-    
 
     def processMsg(self, msg: WxMsg) -> None:
-        """当收到消息的时候，会调用本方法。如果不实现本方法，则打印原始消息。
-        此处可进行自定义发送的内容,如通过 msg.content 关键字自动获取当前天气信息，并发送到对应的群组@发送者
-        群号：msg.roomid  微信ID：msg.sender  消息内容：msg.content
-        """
+        """处理消息"""
         try:
             # 1. 处理自己发送的消息
             if msg.from_self():
                 if msg.type == 0x01 and msg.content == "*更新":  # 只处理文本消息的更新命令
                     self.config.reload()
-                    self.allowed_groups = self.notion_manager.get_all_allowed_groups()
-                    self.welcome_service.load_groups_from_local()
-                    self.LOG.info("已更新")
+                    self.sync_data_from_notion()
                 return
             
             # 2. 处理定时任务命令
@@ -225,28 +222,21 @@ class Robot:
                     name_change = re.search(r'修改群名为\u201c(.*?)\u201d', msg.content)
                     if name_change:
                         new_name = name_change.group(1)
-                        # 读取缓存数据
-                        with open(self.notion_manager.local_data_path, 'r', encoding='utf-8') as f:
-                            cache_data = json.load(f)
+                        # 更新数据库中的群名
+                        self.db.update_groups([{
+                            'wxid': msg.roomid,
+                            'name': new_name,
+                            'welcome_enabled': True,
+                            'allow_forward': True,
+                            'allow_speak': True
+                        }])
                         
-                        # 在 groups 中查找对应的群
-                        for page in cache_data.get('groups', []):
-                            wxid_texts = page['properties'].get('group_wxid', {}).get('rich_text', [])
-                            if wxid_texts and wxid_texts[0]['text']['content'] == msg.roomid:
-                                # 更新 Notion 中的群名
-                                self.notion_manager._update_group_wxid(page['id'], msg.roomid, new_name)
-                                
-                                # 更新本地缓存中的群名
-                                page['properties']['群名']['title'][0]['text']['content'] = new_name
-                                with open(self.notion_manager.local_data_path, 'w', encoding='utf-8') as f:
-                                    json.dump(cache_data, f, ensure_ascii=False, indent=2)
-                                
-                                # 发送飞书通知
-                                if self.feishu_bot:
-                                    self.feishu_bot.notify(f"群 {msg.roomid} 的名称已更新为：{new_name}，Notion 和本地缓存都已更新）")
-                                
-                                # 找到并处理完毕，跳出循环
-                                break
+                        # 更新 Notion
+                        self.notion_manager.create_new_group(msg.roomid, new_name)
+                        
+                        # 发送飞书通知
+                        if self.feishu_bot:
+                            self.feishu_bot.notify(f"群 {msg.roomid} 的名称已更新为：{new_name}，数据库和 Notion 都已更新")
                     
                     # 2. 检测新群邀请
                     elif re.search(r".*邀请你加入了群聊", msg.content):
@@ -334,10 +324,10 @@ class Robot:
                 self.toAIchat(msg)
                 return
             
-            # 5. 其他文字消息触发：hey～如果你想和肥肉聊天的话，发送内容需要包含“肥肉”哦～
+            # 5. 其他文字消息触发：
             else:
-                    self.sendTextMsg("hey～如果你想和肥肉聊天的话，发送内容需要包含“肥肉”哦～", msg.sender)
-                    return
+                self.sendTextMsg('hey～如果你想和肥肉聊天的话，发送内容需要包含"肥肉"哦～', msg.sender)
+                return
             
         except Exception as e:
             self.LOG.error(f"消息处理异常: {e}")
@@ -520,3 +510,18 @@ class Robot:
             bool: 是否处理成功
         """
         return self.music_service.process_music_command(msg.content, msg.roomid)
+
+    def sync_data_from_notion(self) -> None:
+        """从 Notion 同步数据并更新到程序中
+        1. 更新 Notion 数据到数据库
+        2. 更新内存中的群组列表
+        3. 更新欢迎服务的群组配置
+        """
+        # 先更新 Notion 数据到数据库
+        self.notion_manager.fetch_notion_data()
+        # 然后更新内存中的群组列表
+        speak_enabled_groups = self.db.get_speak_enabled_groups()
+        self.allowed_groups = [group['wxid'] for group in speak_enabled_groups]
+        # 更新欢迎服务的群组配置
+        self.welcome_service.load_groups_from_local()
+        self.LOG.info("已更新配置和数据")

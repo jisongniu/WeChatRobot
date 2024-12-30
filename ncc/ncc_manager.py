@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from queue import Queue
 import threading
 from .welcome_service import WelcomeService
+from .db_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +39,12 @@ class OperatorState:
             self.messages = []
 
 class NCCManager:
-    def __init__(self, notion_manager: NotionManager, wcf):
+    def __init__(self, robot, notion_manager: NotionManager, wcf):
+        self.robot = robot  # 保存 robot 实例的引用
         self.notion_manager = notion_manager
         self.wcf = wcf
         self.welcome_service = WelcomeService(wcf)  # 初始化迎新服务
+        self.db = DatabaseManager()  # 初始化数据库管理器
         self.images_dir = os.path.join(os.path.dirname(__file__), "ncc_images")
         if not os.path.exists(self.images_dir):
             os.makedirs(self.images_dir)
@@ -75,11 +78,8 @@ class NCCManager:
         
     def handle_message(self, msg) -> bool:
         """统一处理所有NCC相关消息"""
-        # 添加调试日志
-        #logger.info(f"handle_message 收到消息: type={msg.type}, content={msg.content}")
-        
         if msg.content.lower().strip() == "ncc":
-            admin_wxids = self.notion_manager.get_admins_wxid()
+            admin_wxids = self.db.get_admin_wxids()
             if msg.sender in admin_wxids:
                 operator_state = self._get_operator_state(msg.sender)
                 operator_state.state = ForwardState.WAITING_CHOICE_MODE
@@ -105,10 +105,10 @@ class NCCManager:
             return True
 
         if operator_state.state == ForwardState.WAITING_CHOICE_MODE:
-            if msg.content == "5":  # 进入迎新消息管理模式，显示所有启用迎新推送的群列表
+            if msg.content == "5":  # 进入迎新消息管理模式
                 operator_state.state = ForwardState.WELCOME_GROUP_CHOICE
                 # 获取所有启用了迎新推送的群组
-                groups = self.welcome_service.load_groups_from_local()
+                groups = self.db.get_welcome_enabled_groups()
                 if not groups:
                     self.sendTextMsg("未找到启用迎新推送的群组，请先在Notion的群管理页面开启迎新推送开关", msg.sender)
                     self._reset_operator_state(msg.sender)
@@ -120,10 +120,9 @@ class NCCManager:
                 response += "\n请回复数字选择要管理的群聊，回复0退出"
                 self.sendTextMsg(response, msg.sender)
                 return True
+
             elif msg.content == "2":  # 同步 Notion 数据到本地缓存
-                # 更新 list、group、管理员
-                self.notion_manager.update_notion_data()
-                # 发送菜单以供选择
+                self.robot.sync_data_from_notion()  # 使用 robot 的同步方法
                 self.sendTextMsg("同步成功，请选择操作", msg.sender)
                 self._send_menu(msg.sender)
                 return True
@@ -137,7 +136,7 @@ class NCCManager:
                 return True
             elif msg.content == "4":  # 查看团队成员列表
                 # 获取管理员称呼列表
-                admin_names = self.notion_manager.get_admin_names()
+                admin_names = self.db.get_admin_names()
                 admin_list = "成员：\n" + "\n".join(f"👤 {name}" for name in admin_names)
                 self.sendTextMsg(admin_list, msg.sender)
                 return True
@@ -147,16 +146,18 @@ class NCCManager:
         
         #信息收集阶段
         elif operator_state.state == ForwardState.WAITING_MESSAGE:
-            # 添加调试日志
-            logger.debug(f"收到消息，类型: {msg.type}, 内容: {msg.content}")
-            
             if msg.content == "选择群聊":
                 if not operator_state.messages:
                     self.sendTextMsg("还未收集到任何消息，请先发送需要转发的内容", msg.sender)
                     return True
                 
                 operator_state.state = ForwardState.WAITING_CHOICE
-                lists = self.notion_manager.get_forward_lists_and_groups()
+                # 从数据库获取转发列表
+                with self.db.get_db() as conn:
+                    cur = conn.cursor()
+                    cur.execute('SELECT list_id, list_name FROM forward_lists ORDER BY list_id')
+                    lists = cur.fetchall()
+                
                 if not lists:
                     self.sendTextMsg("未找到可用的转发列表，请先使用【刷新列表】更新数据", msg.sender)
                     self._reset_operator_state(msg.sender)
@@ -165,9 +166,9 @@ class NCCManager:
                 response = f"已收集 {len(operator_state.messages)} 条消息\n请选择想要转发的分组编号项（支持多选，如：1+2+3），按0退出：\n"
                 # 添加"所有群聊"选项
                 response += f"1 👈 所有群聊\n"
-                # 遍历列表，筛选符合条件的群聊
-                for lst in lists:
-                    response += f"{lst.list_id} 👈 {lst.list_name}\n"
+                # 遍历列表
+                for list_id, list_name in lists:
+                    response += f"{list_id} 👈 {list_name}\n"
                 # 发送群聊列表给发送者，以供选择
                 self.sendTextMsg(response, msg.sender)
                 return True
@@ -191,7 +192,7 @@ class NCCManager:
                 logger.error("图片下载超时")
                 self.sendTextMsg("图片下载超时，请稍后重试", msg.sender)
             except Exception as e:
-                logger.error(f"消息收集失败: {e}", exc_info=True)  # 添加完整的异常堆栈
+                logger.error(f"消息收集失败: {e}", exc_info=True)
                 self.sendTextMsg("消息收集异常，请联系管理员", msg.sender)
             return True
 
@@ -204,30 +205,15 @@ class NCCManager:
                 if operator_state.messages:
                     groups = set()  # 使用集合来自动去重
                     
-                    # 获取所有列表信息
-                    lists = self.notion_manager.get_forward_lists_and_groups()
-                    if not lists:
-                        self.sendTextMsg("未找到可用的转发列表，请先使用【刷新列表】更新数据", msg.sender)
-                        self._reset_operator_state(msg.sender)
-                        return True
-                        
-                    # 处理每个选中的列表ID
-                    for list_id in list_ids:
-                        if list_id == 1:  # 处理"所有群聊"选项
-                            # 从所有列表中提取群组
-                            all_groups = set(
-                                group['wxid'] for lst in lists 
-                                for group in lst.groups 
-                                if group.get('wxid')  # 确保只包含有效的 wxid
-                            )
-                            groups.update(all_groups)
+                    # 获取所有群组
+                    with self.db.get_db() as conn:
+                        cur = conn.cursor()
+                        if 1 in list_ids:  # 如果选择了"所有群聊"
+                            cur.execute('SELECT wxid FROM groups WHERE list_id IS NOT NULL AND allow_forward = 1')
                         else:
-                            # 获取特定列表的群组
-                            list_groups = self.notion_manager.get_groups_by_list_id(list_id)
-                            if list_groups:
-                                groups.update(list_groups)
-                            else:
-                                self.sendTextMsg(f"警告：未找到ID为 {list_id} 的列表或列表中没有有效的群组", msg.sender)
+                            placeholders = ','.join('?' * len(list_ids))
+                            cur.execute(f'SELECT wxid FROM groups WHERE list_id IN ({placeholders}) AND allow_forward = 1', list_ids)
+                        groups = {row[0] for row in cur.fetchall()}
                     
                     if not groups:
                         self.sendTextMsg("未找到任何可转发的群组，请重新选择，或发送【0】退出转发模式", msg.sender)
@@ -256,7 +242,7 @@ class NCCManager:
                     self.sendTextMsg("已退出迎新消息管理", msg.sender)
                     return True
 
-                groups = self.welcome_service.load_groups_from_local()
+                groups = self.db.get_welcome_enabled_groups()
                 if 1 <= choice <= len(groups):  # 选择要管理的群，进入迎新消息管理菜单
                     group = groups[choice - 1]
                     operator_state.current_group = group['wxid']
@@ -343,6 +329,8 @@ class NCCManager:
 
     def _process_forward_queue(self):
         """处理转发队列的后台线程"""
+        MAX_RETRIES = 3  # 最大重试次数
+        
         while True:
             try:
                 # 从队列获取转发任务
@@ -356,6 +344,7 @@ class NCCManager:
                 
                 success_count = 0
                 failed_count = 0
+                failed_messages = []  # 记录失败的消息
                 
                 # 为每个群添加随机延迟
                 for i, group in enumerate(groups):
@@ -366,25 +355,73 @@ class NCCManager:
                     if i > 0 and i % 10 == 0:
                         extra_delay = random.uniform(5, 10)
                         time.sleep(extra_delay)
-                        
+                    
+                    group_failed_messages = []  # 记录当前群发送失败的消息
+                    
                     for msg in messages:
-                        if self._forward_message(msg, group):
-                            success_count += 1
-                        else:
+                        retries = 0
+                        success = False
+                        
+                        # 添加重试机制
+                        while retries < MAX_RETRIES and not success:
+                            try:
+                                if self._forward_message(msg, group):
+                                    success = True
+                                    success_count += 1
+                                else:
+                                    retries += 1
+                                    if retries < MAX_RETRIES:
+                                        time.sleep(2)  # 重试前等待
+                            except Exception as e:
+                                logger.error(f"发送消息失败 (重试 {retries + 1}/{MAX_RETRIES}): {e}")
+                                retries += 1
+                                if retries < MAX_RETRIES:
+                                    time.sleep(2)
+                        
+                        if not success:
                             failed_count += 1
+                            group_failed_messages.append({
+                                'msg_id': msg.id,
+                                'type': msg.type,
+                                'error': f"发送失败，已重试 {MAX_RETRIES} 次"
+                            })
+                        
                         # 每条消息间隔1-2秒
                         time.sleep(random.uniform(1, 2))
                     
-                    time.sleep(group_delay)
+                    if group_failed_messages:
+                        failed_messages.append({
+                            'group': group,
+                            'messages': group_failed_messages
+                        })
                     
+                    time.sleep(group_delay)
                 
                 # 发送最终结果
                 status = f"转发完成！\n成功：{success_count} 条\n失败：{failed_count} 条\n总计：{total_messages} 条消息到 {total_groups} 个群"
+                
+                # 如果有失败的消息，添加详细信息
+                if failed_messages:
+                    status += "\n\n失败详情："
+                    for group_fail in failed_messages:
+                        group_name = self.wcf.get_room_name(group_fail['group']) or group_fail['group']
+                        status += f"\n群「{group_name}」:"
+                        for msg in group_fail['messages']:
+                            status += f"\n- 消息ID {msg['msg_id']} (类型 {msg['type']}): {msg['error']}"
+                
                 self.sendTextMsg(status, operator_id)
                 
             except Exception as e:
-                logging.error(f"处理转发队列时出错: {e}")
+                logger.error(f"处理转发队列时出错: {e}", exc_info=True)
+                if 'operator_id' in locals():
+                    self.sendTextMsg(f"转发过程中发生错误: {str(e)}", operator_id)
             finally:
                 self.forward_queue.task_done()
+
+    def sync_data_from_notion(self) -> None:
+        """从 Notion 同步数据并更新到程序中
+        使用 Robot 类的同步方法来保持一致性
+        """
+        self.robot.sync_data_from_notion()
 
     

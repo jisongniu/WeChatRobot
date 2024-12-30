@@ -32,8 +32,9 @@ class WCFMessageSender(MessageSender):
     def get_group_id_by_name(self, group_name: str) -> Optional[str]:
         """通过群名查找群ID"""
         try:
-            # 1. 直接从 notion_manager 获取群名到群ID的映射
-            groups_info = self.robot.notion_manager.get_groups_info()  # 新方法
+            # 1. 直接从 db_manager 获取群组信息
+            groups = self.robot.db.get_speak_enabled_groups()
+            groups_info = {group['name']: group['wxid'] for group in groups}
             
             # 2. 简单的字典查找
             if group_name in groups_info:
