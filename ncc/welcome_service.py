@@ -2,6 +2,7 @@ import re
 import logging
 from typing import Optional, List, Dict
 import os
+import json
 import sqlite3
 from wcferry import Wcf, WxMsg
 import random
@@ -181,27 +182,61 @@ class WelcomeService:
         self.wcf.send_text("✅ 迎新消息设置成功！", operator)
 
     def is_join_message(self, msg: WxMsg) -> tuple[bool, str]:
-        """判断是否是入群消息，并提取新成员昵称"""
+        """判断是否是入群消息，并提取新成员昵称
+        
+        Args:
+            msg: 微信消息对象
+            
+        Returns:
+            tuple[bool, str]: (是否为入群消息, 新成员昵称)
+        """
         for pattern in self.welcome_patterns:
             if match := re.search(pattern, msg.content):
                 member_name = match.group(1).replace('"', '')
                 return True, member_name
         return False, ""
 
+    def is_welcome_group(self, group_id: str, groups: List[dict]) -> bool:
+        """检查指定群是否为迎新群
+        
+        Args:
+            group_id: 群ID
+            groups: 群组配置列表
+            
+        Returns:
+            bool: 是否为迎新群
+        """
+        # 使用any替代显式循环，提高代码简洁性
+        return any(
+            group.get('wxid') == group_id and group.get('welcome_enabled', False)
+            for group in groups
+        )
+
     def handle_message(self, msg: WxMsg) -> None:
-        """处理入群消息，触发欢迎消息发送"""
+        """处理入群消息，触发欢迎消息发送
+        
+        Args:
+            msg: 微信消息对象
+        """
         # 检查是否是入群消息
         is_join, member_name = self.is_join_message(msg)
-        if is_join:
-            # 在新线程中发送欢迎消息
-            from threading import Thread
-            Thread(
-                target=self.send_welcome,
-                args=(msg.roomid, member_name),
-                name=f"WelcomeThread-{member_name}",
-                daemon=True
-            ).start()
-            logger.info(f"已启动欢迎消息发送线程: {member_name}")
+        if not is_join:
+            return
+
+        # 检查是否是迎新群
+        groups = self.load_groups_from_local()
+        if not self.is_welcome_group(msg.roomid, groups):
+            return
+
+        # 在新线程中发送欢迎消息
+        from threading import Thread
+        Thread(
+            target=self.send_welcome,
+            args=(msg.roomid, member_name),
+            name=f"WelcomeThread-{member_name}",
+            daemon=True
+        ).start()
+        logger.info(f"已启动欢迎消息发送线程: {member_name}")
 
     def send_welcome(self, group_id: str, member_name: str) -> bool:
         """发送迎新消息"""
@@ -263,10 +298,9 @@ class WelcomeService:
             logger.error(f"发送欢迎消息失败: {e}")
             return False
 
-    def _send_merged_msg(self, recorditem: str, target: str) -> bool:
+    def _send_merged_msg(self, recorditem: str, to_wxid: str) -> bool:
         """发送合并转发消息"""
-        try:
-            xml_msg = f"""<?xml version="1.0"?>
+        xml = f"""<?xml version="1.0"?>
 <msg>
     <appmsg appid="" sdkver="0">
         <title>群聊的聊天记录</title>
@@ -274,74 +308,32 @@ class WelcomeService:
         <action>view</action>
         <type>19</type>
         <showtype>0</showtype>
-        <content></content>
         <url>https://support.weixin.qq.com/cgi-bin/mmsupport-bin/readtemplate?t=page/favorite_record__w_unsupport</url>
-        <dataurl></dataurl>
-        <lowurl></lowurl>
-        <lowdataurl></lowdataurl>
         <recorditem><![CDATA[{recorditem}]]></recorditem>
-        <thumburl></thumburl>
-        <messageaction></messageaction>
-        <extinfo></extinfo>
-        <sourceusername></sourceusername>
-        <sourcedisplayname></sourcedisplayname>
-        <commenturl></commenturl>
         <appattach>
-            <totallen>0</totallen>
-            <attachid></attachid>
-            <emoticonmd5></emoticonmd5>
-            <fileext></fileext>
-            <cdnthumburl></cdnthumburl>
             <cdnthumbaeskey></cdnthumbaeskey>
             <aeskey></aeskey>
-            <encryver>0</encryver>
-            <filekey></filekey>
         </appattach>
-        <weappinfo>
-            <pagepath></pagepath>
-            <username></username>
-            <appid></appid>
-            <version>0</version>
-            <type>0</type>
-            <weappiconurl></weappiconurl>
-            <shareId></shareId>
-            <appservicetype>0</appservicetype>
-        </weappinfo>
     </appmsg>
-    <fromusername></fromusername>
-    <scene>0</scene>
-    <appinfo>
-        <version>1</version>
-        <appname></appname>
-    </appinfo>
-    <commenturl></commenturl>
-    <realchatname></realchatname>
-    <chatname></chatname>
-    <membercount>0</membercount>
-    <chatroomtype>0</chatroomtype>
 </msg>"""
-
-            # 压缩XML消息
-            text_bytes = xml_msg.encode('utf-8')
-            compressed_data = lb.compress(text_bytes, store_size=False)
-            compressed_data_hex = compressed_data.hex()
-
-            data = self.wcf.query_sql('MSG0.db', "SELECT * FROM MSG where type = 49 limit 1")
-            if not data:
-                logger.error("未找到合适的消息模板")
-                return False
-
-            self.wcf.query_sql(
-                'MSG0.db',
-                f"UPDATE MSG SET CompressContent = x'{compressed_data_hex}', BytesExtra=x'', type=49, SubType=19, IsSender=0, TalkerId=2 WHERE MsgSvrID={data[0]['MsgSvrID']}"
-            )
-
-            result = self.wcf.forward_msg(data[0]["MsgSvrID"], target)
-            return result == 1
-
-        except Exception as e:
-            logger.error(f"发送合并消息时发生错误：{e}")
+        # 压缩XML消息
+        text_bytes = xml.encode('utf-8')
+        compressed_data = lb.compress(text_bytes, store_size=False)
+        compressed_data_hex = compressed_data.hex()
+        
+        # 查询消息模板
+        data = self.wcf.query_sql('MSG0.db', "SELECT * FROM MSG where type = 49 limit 1")
+        if not data:
+            logger.error("未找到合适的消息模板")
             return False
+        
+        # 更新数据库
+        sql = f"UPDATE MSG SET CompressContent = x'{compressed_data_hex}', BytesExtra=x'', type=49, SubType=19, IsSender=0, TalkerId=2 WHERE MsgSvrID={data[0]['MsgSvrID']}"
+        self.wcf.query_sql('MSG0.db', sql)
+        
+        # 发送消息
+        result = self.wcf.forward_msg(data[0]["MsgSvrID"], to_wxid)
+        return result == 1
 
     def load_groups_from_local(self) -> List[dict]:
         """从本地加载群组数据并解析欢迎配置"""
@@ -391,6 +383,7 @@ class WelcomeService:
                 return {
                     'wxid': group_wxid,
                     'name': group_name,
+                    'welcome_enabled': welcome_enabled
                 }
             
             return None

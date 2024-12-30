@@ -78,35 +78,7 @@ class NCCManager:
         # 添加调试日志
         #logger.info(f"handle_message 收到消息: type={msg.type}, content={msg.content}")
         
-        # 处理多命令输入
-        if "，" in msg.content or "," in msg.content:
-            commands = msg.content.replace("，", ",").split(",")
-            commands = [cmd.strip() for cmd in commands]  # 去除空格
-            
-            # 第一个命令必须是ncc
-            if commands[0].lower() != "ncc":
-                return False
-                
-            # 获取操作者状态
-            operator_state = self._get_operator_state(msg.sender)
-            
-            # 检查权限
-            admin_wxids = self.notion_manager.get_admins_wxid()
-            if msg.sender not in admin_wxids:
-                self.sendTextMsg("对不起，你未开通ncc管理权限，私聊大松获取。", msg.sender)
-                return False
-            
-            # 设置初始状态
-            operator_state.state = ForwardState.WAITING_CHOICE_MODE
-            
-            # 依次处理每个命令
-            for command in commands[1:]:
-                msg.content = command  # 修改消息内容
-                if not self._handle_forward_state(msg, operator_state):
-                    break
-            return True
-        
-        if msg.content.lower() == "ncc":
+        if msg.content.lower().strip() == "ncc":
             admin_wxids = self.notion_manager.get_admins_wxid()
             if msg.sender in admin_wxids:
                 operator_state = self._get_operator_state(msg.sender)
@@ -151,8 +123,6 @@ class NCCManager:
             elif msg.content == "2":  # 同步 Notion 数据到本地缓存
                 # 更新 list、group、管理员
                 self.notion_manager.update_notion_data()
-                # 更新 keyword
-                self.invite_group.update_keywords_data()
                 # 发送菜单以供选择
                 self.sendTextMsg("同步成功，请选择操作", msg.sender)
                 self._send_menu(msg.sender)
@@ -192,7 +162,7 @@ class NCCManager:
                     self._reset_operator_state(msg.sender)
                     return True
                     
-                response = f"已收集 {len(operator_state.messages)} 条消息\n请选择想要转发的分组编号，按0退出：\n"
+                response = f"已收集 {len(operator_state.messages)} 条消息\n请选择想要转发的分组编号项（支持多选，如：1+2+3），按0退出：\n"
                 # 添加"所有群聊"选项
                 response += f"1 👈 所有群聊\n"
                 # 遍历列表，筛选符合条件的群聊
