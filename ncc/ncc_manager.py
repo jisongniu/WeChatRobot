@@ -228,29 +228,40 @@ class NCCManager:
         #转发阶段    
         elif operator_state.state == ForwardState.WAITING_CHOICE:
             try:
-                list_id = int(msg.content)
+                # 处理多选列表
+                list_ids = [int(list_id.strip()) for list_id in msg.content.split("+")]
+                
                 if operator_state.messages:
-                    groups = []
-                    if list_id == 1:  # 处理"所有群聊"选项
-                        # 获取所有启用了转发的群组
-                        lists = self.notion_manager.get_forward_lists_and_groups()
-                        print(f"lists有这些：{lists}")
-                        # 从所有列表的所有群组中，提取出有效的 wxid，去重后存储到 forward_groups
-                        forward_groups = list(set(
-                            group['wxid'] for lst in lists 
-                            for group in lst.groups 
-                            if group.get('wxid')  # 确保只包含有效的 wxid
-                        ))
-                        print(f"forward_groups有这些：{forward_groups}")
-                        if not forward_groups:
-                            self.sendTextMsg("未找到任何可转发的群组，请重新选择，或发送【0】退出转发模式", msg.sender)
-                            return True
-                        groups = forward_groups
-                    else:
-                        groups = self.notion_manager.get_groups_by_list_id(list_id)
-                        if not groups:
-                            self.sendTextMsg(f"未找到ID为 {list_id} 的列表或列表中没有有效的群组，请重新选择，或发送【0】退出转发模式", msg.sender)
-                            return True
+                    groups = set()  # 使用集合来自动去重
+                    
+                    # 获取所有列表信息
+                    lists = self.notion_manager.get_forward_lists_and_groups()
+                    if not lists:
+                        self.sendTextMsg("未找到可用的转发列表，请先使用【刷新列表】更新数据", msg.sender)
+                        self._reset_operator_state(msg.sender)
+                        return True
+                        
+                    # 处理每个选中的列表ID
+                    for list_id in list_ids:
+                        if list_id == 1:  # 处理"所有群聊"选项
+                            # 从所有列表中提取群组
+                            all_groups = set(
+                                group['wxid'] for lst in lists 
+                                for group in lst.groups 
+                                if group.get('wxid')  # 确保只包含有效的 wxid
+                            )
+                            groups.update(all_groups)
+                        else:
+                            # 获取特定列表的群组
+                            list_groups = self.notion_manager.get_groups_by_list_id(list_id)
+                            if list_groups:
+                                groups.update(list_groups)
+                            else:
+                                self.sendTextMsg(f"警告：未找到ID为 {list_id} 的列表或列表中没有有效的群组", msg.sender)
+                    
+                    if not groups:
+                        self.sendTextMsg("未找到任何可转发的群组，请重新选择，或发送【0】退出转发模式", msg.sender)
+                        return True
                         
                     total_groups = len(groups)
                     total_messages = len(operator_state.messages)
@@ -258,13 +269,13 @@ class NCCManager:
                     self.sendTextMsg(f"开始转发 {total_messages} 条消息到 {total_groups} 个群...\n为避免风控，将会添加随机延迟，请耐心等待...", msg.sender)
                     
                     # 将转发任务添加到队列
-                    self.forward_queue.put((operator_state.messages, groups, msg.sender))
+                    self.forward_queue.put((operator_state.messages, list(groups), msg.sender))
                     self._reset_operator_state(msg.sender)
                 
                 return True
                 
             except ValueError:
-                self.sendTextMsg("请输入有效的选项，或发送【0】退出转发模式", msg.sender)
+                self.sendTextMsg("请输入有效的选项（支持多选，如：1+2+3），或发送【0】退出转发模式", msg.sender)
                 return True
                 
         elif operator_state.state == ForwardState.WELCOME_GROUP_CHOICE:
