@@ -13,7 +13,7 @@ logs/
 config.yaml
 
 # test files
-test/
-test.*
-**/test/
-**/test.*
+debug/
+debug.*
+**/debug/
+**/debug.*
