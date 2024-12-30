@@ -52,6 +52,7 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS forward_lists (
                     list_id INTEGER PRIMARY KEY,
                     list_name TEXT NOT NULL,
+                    description TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -133,10 +134,6 @@ class DatabaseManager:
             try:
                 cur = conn.cursor()
                 for group in groups:
-                    # 添加调试日志
-                    welcome_enabled = group.get('welcome_enabled', 0)
-                    logger.warning(f"更新群组 {group['name']} 的迎新推送值: {welcome_enabled}, 类型: {type(welcome_enabled)}")
-                    
                     # 更新群组基本信息
                     cur.execute('''
                         INSERT OR REPLACE INTO groups 
@@ -144,8 +141,8 @@ class DatabaseManager:
                         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ''', (
                         group['wxid'], 
-                        group['name'], 
-                        1 if welcome_enabled else 0,  # 确保布尔值被正确转换为整数
+                        group['name'],
+                        1 if group.get('welcome_enabled', 0) else 0,  # 确保布尔值被正确转换为整数
                         1 if group.get('allow_forward', 0) else 0,
                         1 if group.get('allow_speak', 0) else 0,
                         group.get('welcome_url')
@@ -175,9 +172,9 @@ class DatabaseManager:
                 cur = conn.cursor()
                 for lst in lists:
                     cur.execute('''
-                        INSERT OR REPLACE INTO forward_lists (list_id, list_name, updated_at)
-                        VALUES (?, ?, CURRENT_TIMESTAMP)
-                    ''', (lst['list_id'], lst['list_name']))
+                        INSERT OR REPLACE INTO forward_lists (list_id, list_name, description, updated_at)
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ''', (lst['list_id'], lst['list_name'], lst.get('description', '')))
                 conn.commit()
             except Exception as e:
                 conn.rollback()

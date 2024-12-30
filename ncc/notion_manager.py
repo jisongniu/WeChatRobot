@@ -79,10 +79,14 @@ class NotionManager:
             for page in lists_response['results']:
                 list_id = page['properties'].get('分组编号', {}).get('number')
                 title = page['properties'].get('组名', {}).get('title', [])
+                description_texts = page['properties'].get('描述', {}).get('rich_text', [])
+                description = description_texts[0]['text']['content'] if description_texts else ''
+                
                 if list_id and title:
                     lists.append({
                         'list_id': list_id,
-                        'list_name': title[0]['text']['content']
+                        'list_name': title[0]['text']['content'],
+                        'description': description
                     })
             
             # 处理群组数据
@@ -114,6 +118,7 @@ class NotionManager:
                     groups.append({
                         'wxid': wxid,
                         'name': group_name,
+                        'description': description,
                         'welcome_enabled': welcome_enabled,
                         'allow_forward': allow_forward,
                         'allow_speak': allow_speak,

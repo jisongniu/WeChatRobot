@@ -147,7 +147,7 @@ class NCCManager:
         
         #信息收集阶段
         elif operator_state.state == ForwardState.WAITING_MESSAGE:
-            if msg.content == "选择群聊":
+            if msg.content == "1":
                 if not operator_state.messages:
                     self.sendTextMsg("还未收集到任何消息，请先发送需要转发的内容", msg.sender)
                     return True
@@ -156,7 +156,11 @@ class NCCManager:
                 # 从数据库获取转发列表
                 with self.db.get_db() as conn:
                     cur = conn.cursor()
-                    cur.execute('SELECT list_id, list_name FROM forward_lists ORDER BY list_id')
+                    cur.execute('''
+                        SELECT list_id, list_name, description
+                        FROM forward_lists
+                        ORDER BY list_id
+                    ''')
                     lists = cur.fetchall()
                 
                 if not lists:
@@ -164,12 +168,15 @@ class NCCManager:
                     self._reset_operator_state(msg.sender)
                     return True
                     
-                response = f"已收集 {len(operator_state.messages)} 条消息\n请选择想要转发的分组编号项（支持多选，如：1+2+3），按0退出：\n"
+                response = f"已收集 {len(operator_state.messages)} 条消息\n请选择想要转发的分组编号项（支持多选，如：1+2+3），按0退出：\n\n"
                 # 添加"所有群聊"选项
                 response += f"1 👈 所有群聊\n"
                 # 遍历列表
-                for list_id, list_name in lists:
-                    response += f"{list_id} 👈 {list_name}\n"
+                for list_id, list_name, description in lists:
+                    response += f"{list_id} 👈 {list_name}"
+                    if description:
+                        response += f" （{description}）"
+                    response += "\n"
                 # 发送群聊列表给发送者，以供选择
                 self.sendTextMsg(response, msg.sender)
                 return True
@@ -187,7 +194,7 @@ class NCCManager:
                 # 所有消息都直接添加到收集器
                 operator_state.messages.append(msg)
                 logger.info(f"消息已添加到收集器，当前数量: {len(operator_state.messages)}")
-                self.sendTextMsg(f"已收集 {len(operator_state.messages)} 条消息，继续发送或者：选择群聊", msg.sender)
+                self.sendTextMsg(f"已收集 {len(operator_state.messages)} 条消息，继续发送或者回复【1】选择群聊", msg.sender)
                 
             except TimeoutError:
                 logger.error("图片下载超时")
@@ -210,10 +217,21 @@ class NCCManager:
                     with self.db.get_db() as conn:
                         cur = conn.cursor()
                         if 1 in list_ids:  # 如果选择了"所有群聊"
-                            cur.execute('SELECT wxid FROM groups WHERE list_id IS NOT NULL AND allow_forward = 1')
+                            cur.execute('''
+                                SELECT DISTINCT g.wxid 
+                                FROM groups g
+                                JOIN group_lists gl ON g.wxid = gl.group_wxid
+                                WHERE g.allow_forward = 1
+                            ''')
                         else:
                             placeholders = ','.join('?' * len(list_ids))
-                            cur.execute(f'SELECT wxid FROM groups WHERE list_id IN ({placeholders}) AND allow_forward = 1', list_ids)
+                            cur.execute(f'''
+                                SELECT DISTINCT g.wxid 
+                                FROM groups g
+                                JOIN group_lists gl ON g.wxid = gl.group_wxid
+                                WHERE gl.list_id IN ({placeholders}) 
+                                AND g.allow_forward = 1
+                            ''', list_ids)
                         groups = {row[0] for row in cur.fetchall()}
                     
                     if not groups:
