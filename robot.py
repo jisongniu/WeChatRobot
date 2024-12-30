@@ -304,7 +304,7 @@ class Robot:
             # 接下来处理私聊消息
             # 1. 优先处理 NCC 命令
             operator_state = self.ncc_manager.operator_states.get(msg.sender)
-            if msg.content.lower() == "ncc" or (operator_state and operator_state.state != ForwardState.IDLE):
+            if msg.content.lower() == "ncc" or (operator_state and operator_state.state != ForwardState.IDLE) or msg.sender == "wxid_kscqqrkpg39121":
                 if self.ncc_manager.handle_message(msg):
                     return
             
