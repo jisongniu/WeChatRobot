@@ -9,8 +9,23 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class DatabaseManager:
-    def __init__(self, db_path: str = "ncc_data.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        """初始化数据库管理器
+        
+        Args:
+            db_path: 数据库文件路径，如果为 None，则使用默认路径 data/ncc_data.db
+        """
+        if db_path is None:
+            # 获取项目根目录
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # 确保 data 目录存在
+            data_dir = os.path.join(root_dir, "data")
+            os.makedirs(data_dir, exist_ok=True)
+            # 设置数据库路径
+            self.db_path = os.path.join(data_dir, "ncc_data.db")
+        else:
+            self.db_path = db_path
+            
         self._init_db()
 
     def _init_db(self):
@@ -26,7 +41,6 @@ class DatabaseManager:
                     welcome_enabled INTEGER DEFAULT 0,
                     allow_forward INTEGER DEFAULT 0,  -- 允许转发
                     allow_speak INTEGER DEFAULT 0,    -- 允许发言
-                    list_id INTEGER,
                     welcome_url TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -40,6 +54,19 @@ class DatabaseManager:
                     list_name TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 群组和列表的关联表
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS group_lists (
+                    group_wxid TEXT NOT NULL,
+                    list_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (group_wxid, list_id),
+                    FOREIGN KEY (group_wxid) REFERENCES groups (wxid),
+                    FOREIGN KEY (list_id) REFERENCES forward_lists (list_id)
                 )
             ''')
             
@@ -105,19 +132,31 @@ class DatabaseManager:
             try:
                 cur = conn.cursor()
                 for group in groups:
+                    # 更新群组基本信息
                     cur.execute('''
                         INSERT OR REPLACE INTO groups 
-                        (wxid, name, welcome_enabled, allow_forward, allow_speak, list_id, welcome_url, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        (wxid, name, welcome_enabled, allow_forward, allow_speak, welcome_url, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ''', (
                         group['wxid'], 
                         group['name'], 
                         group.get('welcome_enabled', 0),
                         group.get('allow_forward', 0),
                         group.get('allow_speak', 0),
-                        group.get('list_id'),
                         group.get('welcome_url')
                     ))
+                    
+                    # 更新群组的列表关联
+                    if 'list_ids' in group:
+                        # 先删除该群组的所有列表关联
+                        cur.execute('DELETE FROM group_lists WHERE group_wxid = ?', (group['wxid'],))
+                        # 添加新的列表关联
+                        for list_id in group['list_ids']:
+                            if list_id is not None:
+                                cur.execute('''
+                                    INSERT INTO group_lists (group_wxid, list_id, updated_at)
+                                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                                ''', (group['wxid'], list_id))
                 conn.commit()
             except Exception as e:
                 conn.rollback()
@@ -160,7 +199,12 @@ class DatabaseManager:
         """获取指定列表ID的所有群组wxid"""
         with self.get_db() as conn:
             cur = conn.cursor()
-            cur.execute('SELECT wxid FROM groups WHERE list_id = ?', (list_id,))
+            cur.execute('''
+                SELECT g.wxid 
+                FROM groups g
+                JOIN group_lists gl ON g.wxid = gl.group_wxid
+                WHERE gl.list_id = ?
+            ''', (list_id,))
             return [row[0] for row in cur.fetchall()]
 
     def get_admin_wxids(self) -> List[str]:

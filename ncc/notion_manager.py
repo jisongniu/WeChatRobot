@@ -91,15 +91,15 @@ class NotionManager:
                 group_name = page['properties'].get('群名', {}).get('title', [{}])[0].get('text', {}).get('content', '')
                 wxid_texts = page['properties'].get('group_wxid', {}).get('rich_text', [])
                 wxid = wxid_texts[0]['text']['content'] if wxid_texts else None
-                welcome_enabled = page['properties'].get('迎新推送', {}).get('checkbox', False)
+                welcome_enabled = bool(page['properties'].get('迎新推送', {}).get('checkbox', False))
                 welcome_url = page['properties'].get('迎新推送链接', {}).get('url')
-                allow_forward = page['properties'].get('允许转发', {}).get('checkbox', False)
-                allow_speak = page['properties'].get('允许发言', {}).get('checkbox', False)
+                allow_forward = bool(page['properties'].get('允许转发', {}).get('checkbox', False))
+                allow_speak = bool(page['properties'].get('允许发言', {}).get('checkbox', False))
                 
                 if group_name and wxid:
                     # 获取群组关联的列表ID
                     relations = page['properties'].get('转发群聊分组', {}).get('relation', [])
-                    list_id = None
+                    list_ids = []
                     if relations:
                         for relation in relations:
                             relation_id = relation['id']
@@ -107,6 +107,8 @@ class NotionManager:
                             for list_data in lists_response['results']:
                                 if list_data['id'] == relation_id:
                                     list_id = list_data['properties'].get('分组编号', {}).get('number')
+                                    if list_id is not None:
+                                        list_ids.append(list_id)
                                     break
                     
                     groups.append({
@@ -115,7 +117,7 @@ class NotionManager:
                         'welcome_enabled': welcome_enabled,
                         'allow_forward': allow_forward,
                         'allow_speak': allow_speak,
-                        'list_id': list_id,
+                        'list_ids': list_ids,
                         'welcome_url': welcome_url
                     })
             
@@ -182,7 +184,8 @@ class NotionManager:
                 cur.execute('''
                     SELECT l.list_id, l.list_name, g.wxid, g.name
                     FROM forward_lists l
-                    LEFT JOIN groups g ON g.list_id = l.list_id
+                    LEFT JOIN group_lists gl ON l.list_id = gl.list_id
+                    LEFT JOIN groups g ON gl.group_wxid = g.wxid
                     ORDER BY l.list_id, g.name
                 ''')
                 rows = cur.fetchall()
@@ -259,7 +262,7 @@ class NotionManager:
                 'welcome_enabled': True,
                 'allow_forward': True,
                 'allow_speak': True,
-                'list_id': None,
+                'list_ids': [],
                 'welcome_url': None
             }])
             

@@ -48,6 +48,7 @@ class NCCManager:
         self.images_dir = os.path.join(os.path.dirname(__file__), "ncc_images")
         if not os.path.exists(self.images_dir):
             os.makedirs(self.images_dir)
+            
         self.image_lock = Lock()
         self.operator_states: Dict[str, OperatorState] = {}  # 每个操作者的状态
         
