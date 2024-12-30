@@ -97,7 +97,8 @@ class DatabaseManager:
             ''')
             
             # 创建索引
-            cur.execute('CREATE INDEX IF NOT EXISTS idx_groups_list_id ON groups(list_id)')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_group_lists_group ON group_lists(group_wxid)')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_group_lists_list ON group_lists(list_id)')
             cur.execute('CREATE INDEX IF NOT EXISTS idx_welcome_messages_group ON welcome_messages(group_wxid)')
             
             # 关键词表
@@ -226,7 +227,7 @@ class DatabaseManager:
         with self.get_db() as conn:
             cur = conn.cursor()
             cur.execute('''
-                SELECT wxid, name, welcome_enabled, list_id 
+                SELECT wxid, name, welcome_enabled 
                 FROM groups 
                 WHERE welcome_enabled = 1
             ''')
@@ -234,8 +235,7 @@ class DatabaseManager:
                 {
                     'wxid': row[0],
                     'name': row[1],
-                    'welcome_enabled': row[2],
-                    'list_id': row[3]
+                    'welcome_enabled': row[2]
                 }
                 for row in cur.fetchall()
             ]
@@ -351,7 +351,7 @@ class DatabaseManager:
         with self.get_db() as conn:
             cur = conn.cursor()
             cur.execute('''
-                SELECT wxid, name, welcome_enabled, allow_forward, allow_speak, list_id 
+                SELECT wxid, name, welcome_enabled, allow_forward, allow_speak
                 FROM groups 
                 WHERE allow_speak = 1
             ''')
@@ -361,11 +361,10 @@ class DatabaseManager:
                     'name': row[1],
                     'welcome_enabled': row[2],
                     'allow_forward': row[3],
-                    'allow_speak': row[4],
-                    'list_id': row[5]
+                    'allow_speak': row[4]
                 }
                 for row in cur.fetchall()
-            ] 
+            ]
 
     def update_keywords(self, keywords_data: List[Dict]):
         """更新关键词数据，使用事务确保原子性"""
