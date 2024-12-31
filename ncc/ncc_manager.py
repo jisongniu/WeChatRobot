@@ -130,7 +130,7 @@ class NCCManager:
             elif msg.content == "1":  # 进入消息转发模式
                 operator_state.state = ForwardState.WAITING_MESSAGE
                 operator_state.messages = []
-                self.sendTextMsg("请发送需要转发的内容，支持公众号、推文、视频号、文字、图片、合并消息，一个一个来\n发送【选择群聊】进入下一步\n随时发送【0】退出转发模式", msg.sender)
+                self.sendTextMsg("请发送需要转发的内容，支持公众号、推文、视频号、文字、图片、合并消息，一个一个来\n发送【1】进入下一步\n随时发送【0】退出转发模式", msg.sender)
                 return True
             elif msg.content == "3":  # 查看 Notion 后台链接
                 self.sendTextMsg("列表信息，请登陆查看：https://www.notion.so/bigsong/NCC-1564e93f5682805d9a2ff0519c24738b?pvs=4", msg.sender)
