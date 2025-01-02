@@ -66,7 +66,7 @@ class FeishuBot:
             
         # 检查是否为管理员
         if self.notion_manager:
-            admin_wxids = self.notion_manager.admins
+            admin_wxids = self.notion_manager.get_admins_wxid()
             if sender_wxid in admin_wxids:
                 return False
             

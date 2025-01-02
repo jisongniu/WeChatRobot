@@ -3,7 +3,6 @@ from contextlib import contextmanager
 import logging
 from typing import List, Dict, Optional
 import os
-import json
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -291,28 +290,6 @@ class DatabaseManager:
                 conn.rollback()
                 logger.error(f"保存迎新消息失败: {e}")
                 raise
-
-    def migrate_from_json(self, json_file_path: str):
-        """从JSON文件迁移数据"""
-        if not os.path.exists(json_file_path):
-            logger.warning(f"JSON文件不存在: {json_file_path}")
-            return
-            
-        try:
-            with open(json_file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-            if 'groups' in data:
-                self.update_groups(data['groups'])
-            if 'lists' in data:
-                self.update_forward_lists(data['lists'])
-            if 'admins' in data:
-                self.update_admins(data['admins'])
-                
-            logger.info(f"从 {json_file_path} 迁移数据成功")
-        except Exception as e:
-            logger.error(f"迁移数据失败: {e}")
-            raise 
 
     def get_welcome_url(self, group_id: str) -> Optional[str]:
         """获取群的欢迎小卡片URL"""
